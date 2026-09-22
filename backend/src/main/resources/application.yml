@@ -10,8 +10,6 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
-  flyway:
-    enabled: true
 
 management:
   endpoints:
@@ -26,16 +24,7 @@ management:
     health:
       show-components: always
 
-# Scrape Run tunables. The values below are the defaults; override here or via environment
-# variables (SCRAPER_PACING_INTERVAL, SCRAPER_RETRY_COUNT, SCRAPER_TIMEZONE) without a rebuild.
-scraper:
-  pacing-interval: 250ms
-  retry-count: 3
-  timezone: America/Regina
-
-# Workday client endpoint (ADR-0001). Leave host blank to reach each Career Site at
-# {tenant}.wd{N}.myworkdayjobs.com; set it (e.g. localhost:8089) to send everything to a stub.
-workday:
-  client:
-    scheme: https
-    host:
+# Scrape Run tunables (scraper.pacing-interval, scraper.retry-count, scraper.timezone) and the
+# Workday client endpoint (workday.client.scheme, workday.client.host; ADR-0001) have their defaults
+# on the records in io.github.n3vin2.workdaylister.config. Override them with environment variables
+# such as SCRAPER_PACING_INTERVAL or WORKDAY_CLIENT_HOST; see README.md.

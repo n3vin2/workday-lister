@@ -1,12 +1,12 @@
 # Workday Lister
 
-A single-user tool that reads a Roster of employers' Workday Career Sites from a CSV, scrapes every
+A single-user tool that reads a Roster of Companies' Workday Career Sites from a CSV, scrapes every
 Job Posting from each, and shows which postings appeared today. Vocabulary is defined in
 [CONTEXT.md](CONTEXT.md); design decisions live in [docs/adr](docs/adr).
 
 ## Development setup
 
-Prerequisites: Docker, JDK 21, Node 20 or newer. Maven is provided by the wrapper.
+Prerequisites: Docker, JDK 21, Node 22 or newer. Maven is provided by the wrapper.
 
 Three commands, in three terminals:
 
@@ -34,8 +34,9 @@ commands 1 and 2; Compose and the backend both read it.
 
 ## Configuration
 
-Scrape Run tunables live in `backend/src/main/resources/application.yml` and can be overridden with
-environment variables:
+Defaults are declared on the `ScraperProperties` and `WorkdayClientProperties` records in
+`backend/src/main/java/io/github/n3vin2/workdaylister/config/`. Override any of them without a
+rebuild through environment variables (or an external `application.yml`):
 
 | Property                  | Default          | Environment variable      |
 | ------------------------- | ---------------- | ------------------------- |
@@ -43,7 +44,7 @@ environment variables:
 | `scraper.retry-count`     | `3`              | `SCRAPER_RETRY_COUNT`     |
 | `scraper.timezone`        | `America/Regina` | `SCRAPER_TIMEZONE`        |
 | `workday.client.scheme`   | `https`          | `WORKDAY_CLIENT_SCHEME`   |
-| `workday.client.host`     | blank (per-tenant host) | `WORKDAY_CLIENT_HOST` |
+| `workday.client.host`     | blank (each Career Site's own host) | `WORKDAY_CLIENT_HOST` |
 
 ## Tests
 

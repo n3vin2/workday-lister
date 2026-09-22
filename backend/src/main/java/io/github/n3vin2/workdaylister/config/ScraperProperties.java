@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * Tunables for Scrape Runs, bound from {@code scraper.*}.
  *
  * @param pacingInterval pause between consecutive requests to Workday (ADR-0001: rate limiting is
- *     per source IP across all tenants)
+ *     per source IP across all Career Sites)
  * @param retryCount how many times a throttled or failed request is retried with backoff
  * @param timezone the zone in which "today" is evaluated for Today's Postings (ADR-0002)
  */
