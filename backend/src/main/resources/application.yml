@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: workday-lister
+  datasource:
+    # Matches the MySQL service in the repo-root compose.yaml. MYSQL_PORT is shared with Compose.
+    url: jdbc:mysql://localhost:${MYSQL_PORT:3306}/workdaylister
+    username: workday
+    password: workday
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      # Health lives under the API prefix so the Vite proxy reaches it: GET /api/health
+      base-path: /api
+      exposure:
+        include: health
+      discovery:
+        enabled: false
+  endpoint:
+    health:
+      show-components: always
+
+# Scrape Run tunables. The values below are the defaults; override here or via environment
+# variables (SCRAPER_PACING_INTERVAL, SCRAPER_RETRY_COUNT, SCRAPER_TIMEZONE) without a rebuild.
+scraper:
+  pacing-interval: 250ms
+  retry-count: 3
+  timezone: America/Regina
+
+# Workday client endpoint (ADR-0001). Leave host blank to reach each Career Site at
+# {tenant}.wd{N}.myworkdayjobs.com; set it (e.g. localhost:8089) to send everything to a stub.
+workday:
+  client:
+    scheme: https
+    host:

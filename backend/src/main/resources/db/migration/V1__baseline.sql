@@ -1,0 +1,1 @@
+-- Baseline migration. Establishes Flyway's schema history; tables arrive in later migrations.

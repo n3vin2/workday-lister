@@ -1,0 +1,25 @@
+# Local development database. Start with: docker compose up -d
+# If something else already listens on 3306, pick another host port: MYSQL_PORT=3307 docker compose up -d
+# (the backend reads the same MYSQL_PORT variable).
+# The backend's default datasource settings (backend/src/main/resources/application.yml) match this.
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: workday-lister-mysql
+    environment:
+      MYSQL_DATABASE: workdaylister
+      MYSQL_USER: workday
+      MYSQL_PASSWORD: workday
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql-data:
