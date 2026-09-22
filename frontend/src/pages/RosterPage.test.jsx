@@ -129,3 +129,41 @@ test('reports when an upload fails for a reason other than a rejected file', asy
   expect(await screen.findByText(/upload failed/i)).toBeInTheDocument()
   expect(screen.getByText('Acme')).toBeInTheDocument()
 })
+
+test('shows the upload in flight until the backend answers', async () => {
+  rosterIs([])
+  let answer
+  const answered = new Promise((resolve) => {
+    answer = resolve
+  })
+  server.use(
+    http.post('/api/roster', async () => {
+      await answered
+      return HttpResponse.json({ companies: [acme] })
+    }),
+  )
+  render(<RosterPage />)
+  await screen.findByText(/your roster is empty/i)
+
+  chooseAndUpload('company,url\n')
+
+  const inFlight = await screen.findByRole('button', { name: /uploading/i })
+  expect(inFlight).toBeDisabled()
+  answer()
+  await screen.findByText('Acme')
+  expect(screen.getByRole('button', { name: /^upload$/i })).toBeInTheDocument()
+})
+
+test('a successful upload replaces the message about the Roster failing to load', async () => {
+  server.use(
+    http.get('/api/companies', () => HttpResponse.error()),
+    http.post('/api/roster', () => HttpResponse.json({ companies: [acme] })),
+  )
+  render(<RosterPage />)
+  await screen.findByText(/could not load the roster/i)
+
+  chooseAndUpload('company,url\nAcme,https://acme.wd1.myworkdayjobs.com/Careers\n')
+
+  await screen.findByText('Acme')
+  expect(screen.queryByText(/could not load the roster/i)).not.toBeInTheDocument()
+})

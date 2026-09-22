@@ -36,21 +36,27 @@ public record CareerSite(
         }
     }
 
-    static final String MALFORMED_URL = "URL is malformed";
-    static final String NOT_WORKDAY_HOST =
+    private static final String MALFORMED_URL = "URL is malformed";
+    private static final String NOT_WORKDAY_HOST =
             "URL host is not a Workday Career Site ({tenant}.wd{N}.myworkdayjobs.com)";
-    static final String NO_SITE_NAME = "URL has no Career Site name after the host";
+    private static final String NO_SITE_NAME = "URL has no Career Site name after the host";
+    private static final String SITE_NAME_TOO_LONG =
+            "Career Site name is longer than 255 characters";
 
-    private static final Pattern HOST = Pattern.compile("([a-z0-9-]+)\\.(wd\\d+)\\.myworkdayjobs\\.com");
+    /** Column width of {@code company.site} (V2__company.sql); tenant and pod are bounded by HOST. */
+    private static final int MAX_SITE_LENGTH = 255;
+
+    private static final Pattern HOST =
+            Pattern.compile("([a-z0-9-]{1,63})\\.(wd\\d{1,13})\\.myworkdayjobs\\.com");
     private static final Pattern LOCALE_SEGMENT = Pattern.compile("[a-z]{2}-[A-Z]{2}");
 
     /**
-     * Parses a public Workday careers URL as pasted from a browser. The query string, an optional
+     * Parses a Career Site URL as pasted from a browser. The query string, an optional
      * leading locale segment such as {@code /en-US/}, and everything after the site name (job
      * paths, detail paths) are ignored.
      *
      * @throws InvalidUrlException when the URL is malformed, its host is not a Workday Career Site
-     *     host, or its path has no site name
+     *     host, its path has no site name, or the site name is too long to store
      */
     public static CareerSite parse(String url) {
         URI uri;
@@ -76,6 +82,10 @@ public record CareerSite(
         if (siteIndex >= segments.size()) {
             throw new InvalidUrlException(NO_SITE_NAME);
         }
-        return new CareerSite(host.group(1), host.group(2), segments.get(siteIndex));
+        String site = segments.get(siteIndex);
+        if (site.length() > MAX_SITE_LENGTH) {
+            throw new InvalidUrlException(SITE_NAME_TOO_LONG);
+        }
+        return new CareerSite(host.group(1), host.group(2), site);
     }
 }

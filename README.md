@@ -30,7 +30,7 @@ NVIDIA,https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite
 M&T Bank,https://mtb.wd5.myworkdayjobs.com/MTB
 ```
 
-Any public Workday careers URL is accepted as pasted from a browser: a locale segment such as
+Any Career Site URL is accepted as pasted from a browser: a locale segment such as
 `/en-US/`, a job or details path, and a query string are all ignored, and rows that point at the
 same Career Site (same tenant, pod, and site name) collapse to one Company. Fields may be quoted
 with double quotes. Each upload replaces the whole Roster: Companies whose Career Site is already

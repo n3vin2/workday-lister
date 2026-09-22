@@ -39,17 +39,18 @@ public class Company {
 
     protected Company() {}
 
-    public Company(String name, String careerSiteUrl, CareerSite careerSite) {
-        this.name = name;
-        this.careerSiteUrl = careerSiteUrl;
-        this.careerSite = careerSite;
+    /** A Company that has never been scraped, as first described by a Roster CSV row. */
+    public Company(RosterEntry entry) {
+        this.name = entry.name();
+        this.careerSiteUrl = entry.careerSiteUrl();
+        this.careerSite = entry.careerSite();
         this.status = CompanyStatus.NEVER_SCRAPED;
     }
 
     /** Adopts the name and URL from a newer CSV row for the same Career Site. */
-    void adopt(String name, String careerSiteUrl) {
-        this.name = name;
-        this.careerSiteUrl = careerSiteUrl;
+    void adopt(RosterEntry entry) {
+        this.name = entry.name();
+        this.careerSiteUrl = entry.careerSiteUrl();
     }
 
     public Long getId() {

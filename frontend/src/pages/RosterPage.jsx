@@ -36,6 +36,7 @@ export default function RosterPage() {
         onUploaded={(result) => {
           if (result.ok) {
             setCompanies(result.companies)
+            setLoadFailed(false)
             setRejectedRows([])
           } else {
             setRejectedRows(result.errors)

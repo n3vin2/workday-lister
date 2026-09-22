@@ -18,6 +18,6 @@ class CompanyController {
 
     @GetMapping
     List<CompanySummary> list() {
-        return rosterService.companies().stream().map(CompanySummary::of).toList();
+        return CompanySummary.ofAll(rosterService.companies());
     }
 }

@@ -39,7 +39,8 @@ class RosterUploadTest extends IntegrationHarness {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(errors(response.getBody()))
-                .containsExactly(Tuple.tuple(1, "Missing header row: the first line must be \"company,url\""));
+                .containsExactly(
+                        Tuple.tuple(1, "Missing header row: the first line must be \"company,url\""));
     }
 
     @Test
@@ -53,7 +54,8 @@ class RosterUploadTest extends IntegrationHarness {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(errors(response.getBody()))
-                .containsExactly(Tuple.tuple(1, "Missing header row: the first line must be \"company,url\""));
+                .containsExactly(
+                        Tuple.tuple(1, "Missing header row: the first line must be \"company,url\""));
     }
 
     @Test
@@ -110,6 +112,27 @@ class RosterUploadTest extends IntegrationHarness {
                                 2,
                                 "URL host is not a Workday Career Site"
                                         + " ({tenant}.wd{N}.myworkdayjobs.com)"));
+    }
+
+    @Test
+    void overlongNamesAndUrlsAreReportedInsteadOfFailingInTheDatabase() {
+        String longName = "N".repeat(256);
+        String longUrl = "https://acme.wd1.myworkdayjobs.com/Careers?q=" + "x".repeat(2010);
+        String longSite = "https://beta.wd1.myworkdayjobs.com/" + "S".repeat(256);
+
+        ResponseEntity<JsonNode> response =
+                uploadRoster(
+                        "company,url\n"
+                                + longName + ",https://acme.wd1.myworkdayjobs.com/Careers\n"
+                                + "Acme," + longUrl + "\n"
+                                + "Beta," + longSite + "\n");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(errors(response.getBody()))
+                .containsExactly(
+                        Tuple.tuple(2, "Company name is longer than 255 characters"),
+                        Tuple.tuple(3, "URL is longer than 2048 characters"),
+                        Tuple.tuple(4, "Career Site name is longer than 255 characters"));
     }
 
     @Test

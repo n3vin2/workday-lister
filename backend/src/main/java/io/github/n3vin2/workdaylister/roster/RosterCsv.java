@@ -24,17 +24,21 @@ public final class RosterCsv {
         }
     }
 
-    static final String MISSING_HEADER = "Missing header row: the first line must be \"company,url\"";
-    static final String BLANK_NAME = "Company name is blank";
-
-    static String wrongColumnCount(int found) {
-        return "Expected 2 columns (company,url) but found " + found;
-    }
-
+    private static final String MISSING_HEADER =
+            "Missing header row: the first line must be \"company,url\"";
+    private static final String BLANK_NAME = "Company name is blank";
     private static final int EXPECTED_COLUMNS = 2;
+
+    /** Column widths of {@code company.name} and {@code company.career_site_url} (V2__company.sql). */
+    private static final int MAX_NAME_LENGTH = 255;
+    private static final int MAX_URL_LENGTH = 2048;
 
     private RosterCsv() {}
 
+    /**
+     * Parses the whole file. The result holds either every valid row as an entry or every failing
+     * row as an error, never both.
+     */
     public static Result parse(String text) {
         List<RosterEntry> entries = new ArrayList<>();
         List<RowError> errors = new ArrayList<>();
@@ -50,7 +54,10 @@ public final class RosterCsv {
             }
             List<String> cells = splitLine(lines.get(i));
             if (cells.size() != EXPECTED_COLUMNS) {
-                errors.add(new RowError(line, wrongColumnCount(cells.size())));
+                errors.add(
+                        new RowError(
+                                line,
+                                "Expected 2 columns (company,url) but found " + cells.size()));
                 continue;
             }
             String name = cells.get(0).trim();
@@ -59,19 +66,31 @@ public final class RosterCsv {
             if (name.isBlank()) {
                 errors.add(new RowError(line, BLANK_NAME));
                 valid = false;
+            } else if (name.length() > MAX_NAME_LENGTH) {
+                errors.add(new RowError(line, tooLong("Company name", MAX_NAME_LENGTH)));
+                valid = false;
             }
             CareerSite careerSite = null;
-            try {
-                careerSite = CareerSite.parse(url);
-            } catch (CareerSite.InvalidUrlException e) {
-                errors.add(new RowError(line, e.getMessage()));
+            if (url.length() > MAX_URL_LENGTH) {
+                errors.add(new RowError(line, tooLong("URL", MAX_URL_LENGTH)));
                 valid = false;
+            } else {
+                try {
+                    careerSite = CareerSite.parse(url);
+                } catch (CareerSite.InvalidUrlException e) {
+                    errors.add(new RowError(line, e.getMessage()));
+                    valid = false;
+                }
             }
             if (valid) {
                 entries.add(new RosterEntry(name, url, careerSite));
             }
         }
         return errors.isEmpty() ? new Result(entries, List.of()) : new Result(List.of(), errors);
+    }
+
+    private static String tooLong(String what, int max) {
+        return what + " is longer than " + max + " characters";
     }
 
     private static boolean isHeader(List<String> cells) {
@@ -81,10 +100,10 @@ public final class RosterCsv {
     }
 
     private static String stripBom(String cell) {
-        return cell.startsWith("﻿") ? cell.substring(1) : cell;
+        return cell.startsWith("\uFEFF") ? cell.substring(1) : cell;
     }
 
-    /** Splits one line on commas, honouring double-quoted fields with {@code ""} as an escaped quote. */
+    /** Splits one line on commas; a field may be double-quoted, with {@code ""} as an escaped quote. */
     private static List<String> splitLine(String line) {
         List<String> cells = new ArrayList<>();
         StringBuilder cell = new StringBuilder();

@@ -19,9 +19,9 @@ public class RosterService {
 
     /**
      * Replaces the Roster with the given entries, in one transaction. Entries with the same Career
-     * Site coordinates collapse to one Company (the first occurrence's name wins). A Company already
-     * in the Roster with matching coordinates keeps its id and adopts the entry's name and URL; a
-     * Company absent from the entries is deleted, together with anything that hangs off it.
+     * Site coordinates collapse to one Company (the first occurrence's name wins). A Company
+     * already in the Roster with matching coordinates keeps its id and adopts the entry's name and
+     * URL; a Company absent from the entries is deleted, together with anything that hangs off it.
      *
      * @return the new Roster, sorted by name
      */
@@ -38,14 +38,11 @@ public class RosterService {
             if (match == null) {
                 removed.add(existing);
             } else {
-                existing.adopt(match.name(), match.url());
+                existing.adopt(match);
             }
         }
         companies.deleteAll(removed);
-        companies.saveAll(
-                wanted.values().stream()
-                        .map(entry -> new Company(entry.name(), entry.url(), entry.careerSite()))
-                        .toList());
+        companies.saveAll(wanted.values().stream().map(Company::new).toList());
         return companies.findAllByOrderByNameAsc();
     }
 

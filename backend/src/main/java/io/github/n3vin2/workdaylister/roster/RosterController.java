@@ -35,8 +35,7 @@ class RosterController {
         if (!parsed.isValid()) {
             return ResponseEntity.badRequest().body(new Rejected(parsed.errors()));
         }
-        List<CompanySummary> roster =
-                rosterService.replace(parsed.entries()).stream().map(CompanySummary::of).toList();
-        return ResponseEntity.ok(new Replaced(roster));
+        return ResponseEntity.ok(
+                new Replaced(CompanySummary.ofAll(rosterService.replace(parsed.entries()))));
     }
 }

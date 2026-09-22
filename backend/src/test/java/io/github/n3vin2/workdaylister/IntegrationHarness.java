@@ -62,6 +62,12 @@ public abstract class IntegrationHarness {
         workday.resetAll();
     }
 
+    /** Each test starts from an empty Roster: a header-only CSV replaces it with nothing. */
+    @BeforeEach
+    void emptyTheRoster() {
+        uploadRoster("company,url\n");
+    }
+
     /** Uploads the given text as a {@code roster.csv} multipart file to {@code POST /api/roster}. */
     protected ResponseEntity<JsonNode> uploadRoster(String csv) {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
