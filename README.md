@@ -16,8 +16,28 @@ cd backend && ./mvnw spring-boot:run   # 2. Spring Boot on http://localhost:8080
 cd frontend && npm install && npm run dev   # 3. Vite on http://localhost:5173, proxying /api to 8080
 ```
 
-Open http://localhost:5173. The page reports whether the backend is reachable. The backend health
-check is at http://localhost:8080/api/health.
+Open http://localhost:5173. The Roster screen shows an upload prompt until you upload a CSV; if the
+Roster does not load, check that the backend is running (its health check is at
+http://localhost:8080/api/health).
+
+## Roster CSV
+
+The Roster is defined by a CSV with a header row and two columns, `company,url`:
+
+```csv
+company,url
+NVIDIA,https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite
+M&T Bank,https://mtb.wd5.myworkdayjobs.com/MTB
+```
+
+Any public Workday careers URL is accepted as pasted from a browser: a locale segment such as
+`/en-US/`, a job or details path, and a query string are all ignored, and rows that point at the
+same Career Site (same tenant, pod, and site name) collapse to one Company. Fields may be quoted
+with double quotes. Each upload replaces the whole Roster: Companies whose Career Site is already
+present keep their id and take the new name, and Companies missing from the file are deleted.
+An invalid file is rejected as a whole, with every bad row listed by line number and reason.
+
+The API behind the screen is `POST /api/roster` (multipart field `file`) and `GET /api/companies`.
 
 If another MySQL already listens on 3306, export `MYSQL_PORT=3307` (any free port) before running
 commands 1 and 2; Compose and the backend both read it.

@@ -1,15 +1,24 @@
 package io.github.n3vin2.workdaylister;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.testcontainers.containers.MySQLContainer;
 
 /**
@@ -51,5 +60,21 @@ public abstract class IntegrationHarness {
     @BeforeEach
     void resetWorkdayStub() {
         workday.resetAll();
+    }
+
+    /** Uploads the given text as a {@code roster.csv} multipart file to {@code POST /api/roster}. */
+    protected ResponseEntity<JsonNode> uploadRoster(String csv) {
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add(
+                "file",
+                new ByteArrayResource(csv.getBytes(StandardCharsets.UTF_8)) {
+                    @Override
+                    public String getFilename() {
+                        return "roster.csv";
+                    }
+                });
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        return api.postForEntity("/api/roster", new HttpEntity<>(body, headers), JsonNode.class);
     }
 }
