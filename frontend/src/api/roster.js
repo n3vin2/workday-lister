@@ -10,12 +10,16 @@ export async function listCompanies() {
   return response.json()
 }
 
-/** One Company with the same header as its Roster row plus its Open postings, or null when no Company has that id. */
+/**
+ * One Company with the same header as its Roster row plus its Open postings. Resolves to
+ * {@code { ok: true, company }}, or {@code { ok: false }} when no Company has that id.
+ */
 export async function getCompany(id) {
   const response = await fetch(`/api/companies/${id}`)
-  if (response.status === 404) return null
+  if (response.status === 404) return { ok: false }
   if (!response.ok) throw new Error(`Loading the Company failed with HTTP ${response.status}`)
-  return response.json()
+  const company = await response.json()
+  return { ok: true, company }
 }
 
 /**

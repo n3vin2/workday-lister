@@ -24,6 +24,10 @@ _Avoid_: Company list, watchlist, CSV
 One pass over the whole Roster that fetches every Job Posting from every Career Site, one Company at a time. Has per-Company status.
 _Avoid_: Scrape, crawl, job, sync, refresh
 
+**Company Outcome**:
+What one Scrape Run did with one Company: when it started and finished reading the Career Site, how many Job Postings it saw, whether the list was truncated, and its status.
+_Avoid_: Result, run item, per-Company status row
+
 ## Posting lifecycle
 
 **Posting Date**:

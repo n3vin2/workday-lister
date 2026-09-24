@@ -95,6 +95,8 @@ rebuild through environment variables (or an external `application.yml`):
 | `scraper.timezone`        | `America/Regina` | `SCRAPER_TIMEZONE`        |
 | `workday.client.scheme`   | `https`          | `WORKDAY_CLIENT_SCHEME`   |
 | `workday.client.host`     | blank (each Career Site's own host) | `WORKDAY_CLIENT_HOST` |
+| `workday.client.connect-timeout` | `10s`     | `WORKDAY_CLIENT_CONNECT_TIMEOUT` |
+| `workday.client.read-timeout` | `30s`        | `WORKDAY_CLIENT_READ_TIMEOUT` |
 
 ## Tests
 

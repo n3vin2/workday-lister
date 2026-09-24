@@ -3,7 +3,7 @@ package io.github.n3vin2.workdaylister.scrape;
 import io.github.n3vin2.workdaylister.roster.CareerSite;
 import io.github.n3vin2.workdaylister.roster.Company;
 import io.github.n3vin2.workdaylister.roster.CompanyRepository;
-import io.github.n3vin2.workdaylister.workday.JobListing;
+import io.github.n3vin2.workdaylister.workday.WorkdayPosting;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HashMap;
@@ -84,12 +84,12 @@ class ScrapeRecorder {
     /**
      * Stores what a Career Site listed: unseen postings are inserted with First Seen set to this
      * run, and every listed posting has Last Seen set to it. A posting Workday lists twice across
-     * pages (its paging shifts as postings appear) counts once. Then the Company and its outcome are
-     * marked succeeded: the outcome with the postings this run saw, the Company with its Open count,
-     * which is every posting stored for it until Closed handling arrives with a later ticket.
+     * pages (its paging shifts as postings appear) counts once. Then the Company and its outcome
+     * are marked succeeded: the outcome with the postings this run saw, the Company with its Open
+     * count, which is every posting stored for it until Closed handling arrives with a later ticket.
      */
     @Transactional
-    public void record(long outcomeId, List<JobListing> listings, boolean truncated) {
+    public void record(long outcomeId, CareerSitePostings listed) {
         outcomes.findById(outcomeId)
                 .ifPresent(
                         outcome -> {
@@ -102,7 +102,7 @@ class ScrapeRecorder {
                                 known.put(posting.getRequisitionId(), posting);
                             }
                             Set<String> seen = new HashSet<>();
-                            for (JobListing listing : listings) {
+                            for (WorkdayPosting listing : listed.postings()) {
                                 if (!seen.add(listing.requisitionId())) {
                                     continue;
                                 }
@@ -114,9 +114,9 @@ class ScrapeRecorder {
                                 }
                             }
                             Instant now = Instant.now(clock);
-                            company.finishScrape(
-                                    now, (int) postings.countByCompany(company), truncated);
-                            outcome.succeed(now, seen.size(), truncated);
+                            int openCount = (int) postings.countByCompany(company);
+                            company.finishScrape(now, openCount, listed.truncated());
+                            outcome.succeed(now, seen.size(), listed.truncated());
                         });
     }
 

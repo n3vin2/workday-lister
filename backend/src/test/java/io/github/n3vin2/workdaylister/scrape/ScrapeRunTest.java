@@ -13,8 +13,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import io.github.n3vin2.workdaylister.IntegrationHarness;
+import io.github.n3vin2.workdaylister.PinnedClockConfig;
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -52,7 +52,7 @@ class ScrapeRunTest extends IntegrationHarness {
             Beta,https://beta.wd1.myworkdayjobs.com/Jobs
             """;
 
-    private static final String PINNED_NOW = "2026-09-21T15:00:00Z";
+    private static final String PINNED_NOW = PinnedClockConfig.PINNED_NOW.toString();
 
     private static final ObjectMapper json = new ObjectMapper();
 
@@ -120,7 +120,7 @@ class ScrapeRunTest extends IntegrationHarness {
         JsonNode roster = companies();
         assertThat(ints(roster, "openCount")).containsExactly(CAP);
         assertThat(booleans(roster, "truncated")).containsExactly(true);
-        JsonNode outcome = run(runId).path("companies").get(0);
+        JsonNode outcome = run(runId).path("outcomes").get(0);
         assertThat(outcome.path("postingsSeen").asInt()).isEqualTo(CAP);
         assertThat(outcome.path("truncated").asBoolean()).isTrue();
         assertThat(workday.findAll(postRequestedFor(urlEqualTo(NVIDIA_JOBS)))).hasSize(CAP / PAGE);
@@ -218,8 +218,9 @@ class ScrapeRunTest extends IntegrationHarness {
                 .containsExactly(firstRun, secondRun, firstRun);
         assertThat(longs(postings, "lastSeenRunId"))
                 .containsExactly(firstRun, secondRun, secondRun);
-        assertThat(run(secondRun).path("companies").get(0).path("postingsSeen").asInt())
+        assertThat(run(secondRun).path("outcomes").get(0).path("postingsSeen").asInt())
                 .isEqualTo(2);
+        // Until Closed handling arrives (#7), a posting the latest run did not list stays Open.
         assertThat(ints(companies(), "openCount")).containsExactly(3);
     }
 
@@ -236,13 +237,13 @@ class ScrapeRunTest extends IntegrationHarness {
         assertThat(started.path("status").asText()).isEqualTo("RUNNING");
         assertThat(started.path("startedAt").asText()).isEqualTo(PINNED_NOW);
         assertThat(started.path("finishedAt").isNull()).isTrue();
-        assertThat(texts(started.path("companies"), "name")).containsExactly("Acme", "Beta");
+        assertThat(texts(started.path("outcomes"), "name")).containsExactly("Acme", "Beta");
         long runId = started.path("id").asLong();
         awaitRunFinished(runId);
         JsonNode run = run(runId);
         assertThat(run.path("status").asText()).isEqualTo("SUCCEEDED");
         assertThat(run.path("finishedAt").asText()).isEqualTo(PINNED_NOW);
-        JsonNode outcomes = run.path("companies");
+        JsonNode outcomes = run.path("outcomes");
         assertThat(longs(outcomes, "companyId")).isEqualTo(companyIds);
         assertThat(texts(outcomes, "status")).containsOnly("SUCCEEDED");
         assertThat(ints(outcomes, "postingsSeen")).containsExactly(3, 0);
@@ -288,16 +289,17 @@ class ScrapeRunTest extends IntegrationHarness {
     void startingARunReturnsAtOnceAndTheRosterShowsTheCompanyBeingScraped() {
         workday.stubFor(
                 post(urlEqualTo(ACME_JOBS))
-                        .willReturn(okJson(jobsPage(1, 0, 1)).withFixedDelay(2000)));
+                        .willReturn(okJson(jobsPage(1, 0, 1)).withTransformers(HOLD)));
+        holdResponses();
 
         ResponseEntity<JsonNode> upload = uploadRoster(TWO_COMPANIES);
 
         assertThat(upload.getStatusCode()).isEqualTo(HttpStatus.OK);
-        await().atMost(Duration.ofMillis(1500))
-                .untilAsserted(
-                        () ->
-                                assertThat(texts(companies(), "status"))
-                                        .containsExactly("IN_PROGRESS", "NEVER_SCRAPED"));
+        await().untilAsserted(
+                () ->
+                        assertThat(texts(companies(), "status"))
+                                .containsExactly("IN_PROGRESS", "NEVER_SCRAPED"));
+        releaseHeldResponses();
         awaitRunFinished(upload.getBody().path("run").path("id").asLong());
         assertThat(texts(companies(), "status")).containsOnly("SUCCEEDED");
     }
@@ -306,13 +308,13 @@ class ScrapeRunTest extends IntegrationHarness {
     void aCompanyRemovedFromTheRosterMidRunIsSkippedAndTheRunStillFinishes() {
         workday.stubFor(
                 post(urlEqualTo(ACME_JOBS))
-                        .willReturn(okJson(jobsPage(1, 0, 1)).withFixedDelay(2000)));
+                        .willReturn(okJson(jobsPage(1, 0, 1)).withTransformers(HOLD)));
+        holdResponses();
         long firstRun = uploadRoster(TWO_COMPANIES).getBody().path("run").path("id").asLong();
-        await().atMost(Duration.ofMillis(1500))
-                .untilAsserted(
-                        () ->
-                                assertThat(texts(companies(), "status"))
-                                        .containsExactly("IN_PROGRESS", "NEVER_SCRAPED"));
+        await().untilAsserted(
+                () ->
+                        assertThat(texts(companies(), "status"))
+                                .containsExactly("IN_PROGRESS", "NEVER_SCRAPED"));
 
         long secondRun =
                 uploadRoster(
@@ -324,10 +326,11 @@ class ScrapeRunTest extends IntegrationHarness {
                         .path("run")
                         .path("id")
                         .asLong();
+        releaseHeldResponses();
 
         awaitRunFinished(firstRun);
         assertThat(run(firstRun).path("status").asText()).isEqualTo("SUCCEEDED");
-        assertThat(run(firstRun).path("companies")).isEmpty();
+        assertThat(run(firstRun).path("outcomes")).isEmpty();
         awaitRunFinished(secondRun);
         JsonNode roster = companies();
         assertThat(texts(roster, "name")).containsExactly("Gamma");
@@ -359,7 +362,10 @@ class ScrapeRunTest extends IntegrationHarness {
                         .willReturn(okJson(body)));
     }
 
-    /** Stubs one page with a response recorded from a real Career Site (see the fixtures' README). */
+    /**
+     * Stubs one page with a response recorded from a real Career Site; the fixtures' README says
+     * when and how it was captured.
+     */
     private static void stubJobsFromRecording(String jobsPath, int offset, String bodyFile) {
         workday.stubFor(
                 post(urlEqualTo(jobsPath))
@@ -372,17 +378,22 @@ class ScrapeRunTest extends IntegrationHarness {
 
     /** A single page listing exactly the given postings. */
     private static String postings(String... listings) {
-        return "{\"total\":%d,\"jobPostings\":[%s],\"userAuthenticated\":false}"
-                .formatted(listings.length, String.join(",", listings));
+        return page(listings.length, List.of(listings));
     }
 
     /** One listing in the recorded shape, labelled {@code Posted Today}. */
     private static String listing(String title, String externalPath, String location) {
+        String requisitionId = externalPath.substring(externalPath.lastIndexOf('_') + 1);
         return """
                 {"title":"%s","externalPath":"%s","locationsText":"%s","postedOn":"Posted Today",\
                 "bulletFields":["%s"]}"""
-                .formatted(
-                        title, externalPath, location, externalPath.substring(externalPath.lastIndexOf('_') + 1));
+                .formatted(title, externalPath, location, requisitionId);
+    }
+
+    /** A page in the shape of the recorded fixtures: the given total and listings. */
+    private static String page(int total, List<String> listings) {
+        return "{\"total\":%d,\"jobPostings\":[%s],\"userAuthenticated\":false}"
+                .formatted(total, String.join(",", listings));
     }
 
     /**
@@ -399,8 +410,7 @@ class ScrapeRunTest extends IntegrationHarness {
                     "bulletFields":["R%d"]}"""
                             .formatted(n, n, n, n));
         }
-        return "{\"total\":%d,\"jobPostings\":[%s],\"userAuthenticated\":false}"
-                .formatted(total, String.join(",", postings));
+        return page(total, postings);
     }
 
     private static JsonNode body(LoggedRequest request) {

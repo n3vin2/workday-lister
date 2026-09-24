@@ -9,8 +9,12 @@ import static org.awaitility.Awaitility.await;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import com.github.tomakehurst.wiremock.extension.ResponseDefinitionTransformerV2;
+import com.github.tomakehurst.wiremock.http.ResponseDefinition;
+import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -42,12 +46,48 @@ import org.testcontainers.containers.MySQLContainer;
  * it to finish before the next test resets the stub and empties the Roster. Until a test says
  * otherwise, every Career Site on the stub is empty (a page with no postings), so a run always
  * finishes.
+ *
+ * <p>To observe a run in the middle of a Company, a test gives that Company's stub the
+ * {@link #HOLD} transformer and calls {@link #holdResponses()}: the stub then answers only once
+ * the test calls {@link #releaseHeldResponses()}. No test depends on a delay racing a deadline.
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "scraper.pacing-interval=0ms")
 @Import(PinnedClockConfig.class)
 public abstract class IntegrationHarness {
+
+    /**
+     * Holds every response of a stub that names it until the test releases it. Registered on the
+     * stub server; stubs opt in with {@code withTransformers(HOLD)}.
+     */
+    public static final class HoldResponse implements ResponseDefinitionTransformerV2 {
+
+        private static volatile CountDownLatch gate = new CountDownLatch(0);
+
+        @Override
+        public ResponseDefinition transform(ServeEvent serveEvent) {
+            try {
+                gate.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return serveEvent.getResponseDefinition();
+        }
+
+        @Override
+        public String getName() {
+            return HOLD;
+        }
+
+        @Override
+        public boolean applyGlobally() {
+            return false;
+        }
+    }
+
+    /** The name a stub gives {@code withTransformers} to have its responses held. */
+    protected static final String HOLD = "hold";
 
     /** A Career Site with no postings, in the shape Workday's jobs endpoint answers with. */
     protected static final String EMPTY_JOBS_PAGE =
@@ -72,7 +112,8 @@ public abstract class IntegrationHarness {
                     WireMockConfiguration.options()
                             .dynamicPort()
                             .usingFilesUnderClasspath("wiremock")
-                            .http2PlainDisabled(true));
+                            .http2PlainDisabled(true)
+                            .extensions(new HoldResponse()));
 
     private static Long lastStartedRun;
 
@@ -92,6 +133,7 @@ public abstract class IntegrationHarness {
 
     @BeforeEach
     void startFromAnEmptyRosterAndAnIdleScraper() {
+        releaseHeldResponses();
         if (lastStartedRun != null) {
             awaitRunFinished(lastStartedRun);
             lastStartedRun = null;
@@ -131,6 +173,19 @@ public abstract class IntegrationHarness {
         ResponseEntity<JsonNode> response = api.postForEntity("/api/runs", null, JsonNode.class);
         rememberRun(response);
         return response;
+    }
+
+    /**
+     * From now on, a stub using {@link #HOLD} answers only once {@link #releaseHeldResponses()} is
+     * called.
+     */
+    protected static void holdResponses() {
+        HoldResponse.gate = new CountDownLatch(1);
+    }
+
+    /** Lets every held response through. */
+    protected static void releaseHeldResponses() {
+        HoldResponse.gate.countDown();
     }
 
     /** Polls {@code GET /api/runs/{id}} until the run is no longer running. */

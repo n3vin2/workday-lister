@@ -21,7 +21,10 @@ public interface WorkdayClient {
      */
     int MAX_POSTINGS = 2000;
 
-    /** One page of a Career Site's postings, starting at {@code offset} (a multiple of PAGE_SIZE). */
+    /**
+     * One page of a Career Site's postings, starting at {@code offset}, a multiple of
+     * {@link #PAGE_SIZE}.
+     */
     JobPage listJobs(CareerSite site, int offset);
 
     /** One posting's detail, by the external path its listing carried. */

@@ -5,7 +5,9 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Scrape Runs: starting one over the Roster, and reading one back with its per-Company outcomes. */
+/**
+ * Scrape Runs: starting one over the Roster, and reading one back with its per-Company outcomes.
+ */
 @Service
 public class ScrapeRunService {
 
@@ -38,6 +40,7 @@ public class ScrapeRunService {
         return run;
     }
 
+    /** One run, running or finished, or empty when no run has that id. */
     @Transactional(readOnly = true)
     public Optional<ScrapeRun> find(long id) {
         return runs.findById(id);

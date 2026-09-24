@@ -21,7 +21,10 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/roster")
 class RosterController {
 
-    /** The new Roster after a successful upload, and the run started over it ({@code null} when empty). */
+    /**
+     * The new Roster after a successful upload, and the run started over it ({@code null} when the
+     * Roster is empty).
+     */
     record Replaced(List<CompanySummary> companies, RunSummary run) {}
 
     /** Why an upload was rejected: every failing row, with nothing written. */
@@ -46,7 +49,10 @@ class RosterController {
         RunSummary run =
                 scrapeRunService
                         .start()
-                        .map(started -> RunSummary.of(started, scrapeRunService.outcomesOf(started)))
+                        .map(
+                                started ->
+                                        RunSummary.of(
+                                                started, scrapeRunService.outcomesOf(started)))
                         .orElse(null);
         return ResponseEntity.ok(new Replaced(roster, run));
     }

@@ -12,7 +12,7 @@ public record RunSummary(
         Instant startedAt,
         Instant finishedAt,
         ScrapeRunStatus status,
-        List<OutcomeSummary> companies) {
+        List<OutcomeSummary> outcomes) {
 
     /** One Company's outcome within a run. */
     public record OutcomeSummary(
@@ -36,6 +36,7 @@ public record RunSummary(
         }
     }
 
+    /** A run with its outcomes, in the order the run visits its Companies. */
     public static RunSummary of(ScrapeRun run, List<CompanyOutcome> outcomes) {
         return new RunSummary(
                 run.getId(),

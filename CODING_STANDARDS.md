@@ -27,7 +27,7 @@ Nothing here is enforced by tooling: there is no Prettier or ESLint config, no C
 - **Configuration has a default and an environment override.** Backend tunables are `@ConfigurationProperties` records with `@DefaultValue`, listed in the README's Configuration table. The frontend has no environment variables: it calls `/api` relatively and Vite proxies it.
 - **Constants are named when something else depends on their value**: database column widths, user-facing messages that tests assert on, shared suffixes. Small one-off literals stay inline.
 - **Tests are part of every change.** Backend behaviour is tested through the HTTP API against a real MySQL; frontend behaviour through the rendered screen against a mocked `/api`. See each section.
-- **Logging.** None exists yet. When it is needed: SLF4J via `LoggerFactory.getLogger` in Java, `console.*` in the frontend.
+- **Logging.** SLF4J via a `private static final Logger log = LoggerFactory.getLogger(...)` in Java (`ScrapeRunner`), `console.*` in the frontend. `error` for what needs a human, `info` for what is expected but worth a trace.
 
 ---
 
@@ -44,10 +44,11 @@ roster/     Company, CareerSite, CompanyStatus, CompanyRepository, RosterService
 scrape/     ScrapeRun, CompanyOutcome, JobPosting and their statuses and repositories; ScrapeRecorder
             (one transaction per step), ScrapeRunner (the background thread), ScrapeRunService,
             JobPostingService, ScrapeRunController, RunSummary, PostingSummary
-workday/    WorkdayClient (the ADR-0001 adapter interface), HttpWorkdayClient, JobPage, JobListing, JobDetail
+workday/    WorkdayClient (the ADR-0001 adapter interface), HttpWorkdayClient, JobPage, WorkdayPosting, JobDetail
 ```
 
-- Default to package-private. Make a type or member `public` when another package, or a test in another package, needs it. `scrape` depends on `roster` and `workday`; `roster`'s controllers call back into `scrape` to start a run and to list a Company's postings, and that is the only cycle.
+- Default to package-private. Make a type or member `public` when another package, or a test in another package, needs it.
+- Dependencies point inward: `scrape` uses `roster` and `workday`; `workday` and `config` use `roster`'s `CareerSite` as a value type. `roster`'s controllers are the composition point: they alone may call `scrape`'s services (to start a run after an upload, to list a Company's postings). Nothing else in `roster` depends on `scrape`.
 - Tests mirror the main packages. The shared `IntegrationHarness` and `PinnedClockConfig` sit at the root test package.
 
 ### Types
@@ -61,7 +62,7 @@ workday/    WorkdayClient (the ADR-0001 adapter interface), HttpWorkdayClient, J
 
 ### Naming
 
-- Class suffixes: `*Controller`, `*Service` (one concrete class, no interface), `*Repository`, `*Properties`, `*Config`, `*Summary` for list-row responses, `*Test`. Endpoint-specific bodies are records nested in the controller and named for the outcome (`Replaced`, `Rejected`).
+- Class suffixes: `*Controller`, `*Service` (one concrete class, no interface), `*Repository`, `*Properties`, `*Config`, `*Summary` for list-row responses, `*Detail` for a one-thing response, `*Recorder` for a bean that writes one feature's state a transaction at a time, `*Runner` for a bean that owns a thread, `*Test`. Endpoint-specific bodies are records nested in the controller and named for the outcome (`Replaced`, `Rejected`).
 - Methods: camelCase. Entities use JavaBean getters (`getName`); records and services use bare accessors (`name()`, `companies()`); operations are verbs (`replace`, `adopt`, `parse`).
 - Constants `UPPER_SNAKE`; enum constants `UPPER_SNAKE` (`NEVER_SCRAPED`).
 - Endpoints: `/api/<plural-noun>` for collections (`/api/companies`, `/api/runs`) and `/api/<plural-noun>/{id}` for one of them; `/api/roster` is singular because there is exactly one Roster. Health is `/api/health` via the actuator base path.
@@ -126,7 +127,7 @@ public class RosterService {
 
 - Schema changes are Flyway migrations `V<n>__<snake_name>.sql` under `src/main/resources/db/migration`; `spring.jpa.hibernate.ddl-auto` is `validate` and `open-in-view` is `false`. Never edit an applied migration.
 - SQL: uppercase keywords, snake_case identifiers, columns aligned, unique keys named `uk_<table>_<what>`, a `--` header comment explaining the table's key.
-- Entities: `@Entity @Table(name = "snake_case")`, `@Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id`, `@Column(nullable = false, length = N)` mirroring the migration, `@Enumerated(EnumType.STRING)` for enums, `@Embedded` for value objects, boxed field types (`Long`). `@ManyToOne(fetch = FetchType.LAZY)` with an explicit `@JoinColumn`, eager only where every reader needs the target (`CompanyOutcome.company`).
+- Entities: `@Entity @Table(name = "snake_case")`, `@Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id`, `@Column(nullable = false, length = N)` mirroring the migration, `@Enumerated(EnumType.STRING)` for enums, `@Embedded` for value objects. Boxed types for the id and for nullable columns (`Long id`, `Instant finishedAt`); primitives for `NOT NULL` numbers and flags (`int openCount`, `boolean truncated`). `@ManyToOne(fetch = FetchType.LAZY)` with an explicit `@JoinColumn`, eager only where every reader needs the target (`CompanyOutcome.company`).
 - An entity that two writers update at once for different reasons (`Company`: an upload renames it, a run records results) is `@DynamicUpdate`, so each writes only its own columns and neither overwrites the other. Every step of background work reloads its entities by id inside its own transaction; nothing detached is saved back.
 - Foreign keys carry `ON DELETE CASCADE` where the child is meaningless without the parent (a Company's postings and outcomes), and no cascade where history must survive (a posting's First Seen run).
 
@@ -143,7 +144,7 @@ public class RosterService {
 ### Tests
 
 - Integration tests extend `IntegrationHarness`: the full context on a random port, a Testcontainers MySQL via `@ServiceConnection`, a WireMock `workday` stub standing in for every Career Site, pacing set to zero, and the clock pinned by `PinnedClockConfig`. Both servers start once per JVM in a static block and are shared across classes. Before each test the harness waits for the last Scrape Run it started, resets the stub, gives every Career Site an empty page as the fallback stub (so a run always finishes), and empties the Roster.
-- Drive the application **only** through `api` (a `TestRestTemplate`) and the `workday` stub. No repository or service calls from tests. Background work is observed by polling the API with Awaitility (`awaitRunFinished`) and Workday traffic through the stub's request journal (`workday.findAll`, `getAllServeEvents`), never through pacing or timing.
+- Drive the application **only** through `api` (a `TestRestTemplate`) and the `workday` stub. No repository or service calls from tests. Background work is observed by polling the API with Awaitility (`awaitRunFinished`) and Workday traffic through the stub's request journal (`workday.findAll`, `getAllServeEvents`), never through pacing or timing. To catch a run mid-Company, give that Company's stub the `HOLD` transformer and call `holdResponses()`; the response goes out only on `releaseHeldResponses()`. No test races a delay against a deadline.
 - Recorded Workday responses live under `src/test/resources/wiremock/__files/workday/` with a README naming the capture; tests that need a particular `total` or page length build pages in the same shape with a helper.
 - One test class per feature, `*Test`. Method names are sentences in camelCase with no `test` or `should` prefix: `reuploadKeepsMatchingIdsAdoptsNewNamesAndDeletesAbsentCompanies`.
 - AssertJ `assertThat`; a blank line separates act from assert; CSV fixtures are text blocks; private static helpers (`errors`, `names`) sit at the bottom of the class.
@@ -161,6 +162,7 @@ src/main.jsx                    StrictMode + BrowserRouter + App
 src/App.jsx                     Routes only
 src/pages/<Name>Page.jsx        one routed screen
 src/pages/<Name>Page.test.jsx   its tests, beside it
+src/components/<Name>.jsx       a piece more than one screen renders (Notice)
 src/api/<resource>.js           every fetch call for one resource
 src/format.js                   formatting both screens share (formatDateTime, formatStatus)
 src/test/{setup,server,multipart}.js
@@ -169,7 +171,7 @@ src/index.css                   @import "tailwindcss"; nothing else
 
 ### Components
 
-- `export default function <Name>Page() {` at the top of the file. Helper components are plain `function` declarations below it in the same file, not exported, until a second screen needs them.
+- `export default function <Name>Page() {` at the top of the file. Helper components are plain `function` declarations below it in the same file, not exported, until a second screen needs them; then they move to `src/components/<Name>.jsx` as a default export.
 - Props destructured in the signature: `function UploadForm({ onUploaded })`.
 - Named imports from `react` (`useEffect`, `useState`); no `import React`. No TypeScript, PropTypes, or type comments.
 
@@ -193,7 +195,7 @@ Prettier's defaults with `semi: false` and `singleQuote: true`, matched by hand 
 ### State and data
 
 - `useState` in the page component. State flows down as props; results come back up through `onX` callbacks. No context, reducers, or data libraries.
-- **`src/api/<resource>.js` is the only place `fetch` is called.** Functions are `async`, use relative `/api/...` URLs, throw ``new Error(`... failed with HTTP ${response.status}`)`` on unexpected statuses, and return `{ ok: true, ... }` or `{ ok: false, errors }` for rejections the screen must show.
+- **`src/api/<resource>.js` is the only place `fetch` is called.** Functions are `async`, use relative `/api/...` URLs, throw ``new Error(`... failed with HTTP ${response.status}`)`` on unexpected statuses, and return `{ ok: true, ... }` or `{ ok: false, ... }` for rejections the screen must show (`errors` for a rejected upload, `reason` for a refused run, nothing more for a 404). Never `null` as a third shape.
 - A fetching effect sets a `cancelled` flag in its cleanup and checks it before setting state.
 - Submit handlers are `async function handleSubmit(event)`: `event.preventDefault()`, set the in-flight flag, `try` the API call, `catch` into a failure message, `finally` clear the flag. Disable the submit button while in flight and change its label (`Uploading…`).
 - Every screen renders its loading, empty, error, and rejected states explicitly. Error copy tells the user what to check (`Is the Spring server running on port 8080?`).

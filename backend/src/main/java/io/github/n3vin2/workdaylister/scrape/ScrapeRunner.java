@@ -1,9 +1,9 @@
 package io.github.n3vin2.workdaylister.scrape;
 
 import io.github.n3vin2.workdaylister.roster.CareerSite;
-import io.github.n3vin2.workdaylister.workday.JobListing;
 import io.github.n3vin2.workdaylister.workday.JobPage;
 import io.github.n3vin2.workdaylister.workday.WorkdayClient;
+import io.github.n3vin2.workdaylister.workday.WorkdayPosting;
 import jakarta.annotation.PreDestroy;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,12 +32,12 @@ class ScrapeRunner {
 
     private final ScrapeRecorder recorder;
     private final WorkdayClient workday;
-    private final ExecutorService thread =
+    private final ExecutorService worker =
             Executors.newSingleThreadExecutor(
                     task -> {
-                        Thread worker = new Thread(task, "scrape-run");
-                        worker.setDaemon(true);
-                        return worker;
+                        Thread thread = new Thread(task, "scrape-run");
+                        thread.setDaemon(true);
+                        return thread;
                     });
 
     ScrapeRunner(ScrapeRecorder recorder, WorkdayClient workday) {
@@ -47,12 +47,12 @@ class ScrapeRunner {
 
     /** Queues an opened run for execution and returns at once. */
     void launch(long runId) {
-        thread.execute(() -> execute(runId));
+        worker.execute(() -> execute(runId));
     }
 
     @PreDestroy
     void shutdown() {
-        thread.shutdownNow();
+        worker.shutdownNow();
     }
 
     private void execute(long runId) {
@@ -70,11 +70,7 @@ class ScrapeRunner {
     private void scrape(long runId, long outcomeId) {
         try {
             recorder.begin(outcomeId)
-                    .ifPresent(
-                            site -> {
-                                Listing listing = list(site);
-                                recorder.record(outcomeId, listing.postings(), listing.truncated());
-                            });
+                    .ifPresent(site -> recorder.record(outcomeId, readCareerSite(site)));
         } catch (OptimisticLockingFailureException e) {
             // No entity is versioned, so this only means the row was deleted under the step: the
             // Company left the Roster while it was being read, and its outcome went with it.
@@ -95,8 +91,8 @@ class ScrapeRunner {
      * page was read; and at {@link WorkdayClient#MAX_POSTINGS}, past which Workday lists nothing. A
      * Career Site reporting that many is truncated: the count is a floor, not the truth.
      */
-    private Listing list(CareerSite site) {
-        List<JobListing> postings = new ArrayList<>();
+    private CareerSitePostings readCareerSite(CareerSite site) {
+        List<WorkdayPosting> postings = new ArrayList<>();
         int total = 0;
         int offset = 0;
         JobPage page;
@@ -110,9 +106,6 @@ class ScrapeRunner {
         } while (page.postings().size() == WorkdayClient.PAGE_SIZE
                 && offset < total
                 && offset < WorkdayClient.MAX_POSTINGS);
-        return new Listing(postings, total >= WorkdayClient.MAX_POSTINGS);
+        return new CareerSitePostings(postings, total >= WorkdayClient.MAX_POSTINGS);
     }
-
-    /** Everything a Career Site listed, and whether Workday's cap cut the list short. */
-    private record Listing(List<JobListing> postings, boolean truncated) {}
 }

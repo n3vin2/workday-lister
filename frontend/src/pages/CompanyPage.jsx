@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { getCompany } from '../api/roster.js'
+import Notice from '../components/Notice.jsx'
 import { formatDateTime, formatStatus } from '../format.js'
 
 /**
@@ -17,12 +18,12 @@ export default function CompanyPage() {
   useEffect(() => {
     let cancelled = false
     getCompany(id)
-      .then((found) => {
+      .then((result) => {
         if (cancelled) return
-        if (found === null) {
-          setNotFound(true)
+        if (result.ok) {
+          setCompany(result.company)
         } else {
-          setCompany(found)
+          setNotFound(true)
         }
       })
       .catch(() => {
@@ -38,11 +39,8 @@ export default function CompanyPage() {
       <Link to="/" className="text-sm text-blue-700 hover:underline">
         ← Roster
       </Link>
-      {notFound && (
-        <p className="mt-6 rounded bg-gray-50 px-3 py-6 text-center text-gray-600">
-          This Company is not in the Roster.
-        </p>
-      )}
+      {company === null && !notFound && !loadFailed && <Notice>Loading the Company…</Notice>}
+      {notFound && <Notice>This Company is not in the Roster.</Notice>}
       {loadFailed && (
         <p className="mt-6 rounded bg-red-50 px-3 py-2 text-red-800">
           Could not load this Company. Is the Spring server running on port 8080?
@@ -80,18 +78,10 @@ function CompanyHeader({ company }) {
 function Postings({ company }) {
   if (company.status === 'NEVER_SCRAPED') {
     return (
-      <p className="mt-6 rounded bg-gray-50 px-3 py-6 text-center text-gray-600">
-        This Company has not been scraped yet. Start a Scrape Run from the Roster.
-      </p>
+      <Notice>This Company has not been scraped yet. Start a Scrape Run from the Roster.</Notice>
     )
   }
-  if (company.postings.length === 0) {
-    return (
-      <p className="mt-6 rounded bg-gray-50 px-3 py-6 text-center text-gray-600">
-        No Open postings.
-      </p>
-    )
-  }
+  if (company.postings.length === 0) return <Notice>No Open postings.</Notice>
   return (
     <ul aria-label="Open postings" className="mt-6 grid gap-3 sm:grid-cols-2">
       {company.postings.map((posting) => (

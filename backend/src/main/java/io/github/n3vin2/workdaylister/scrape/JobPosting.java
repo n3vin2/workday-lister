@@ -1,7 +1,7 @@
 package io.github.n3vin2.workdaylister.scrape;
 
 import io.github.n3vin2.workdaylister.roster.Company;
-import io.github.n3vin2.workdaylister.workday.JobListing;
+import io.github.n3vin2.workdaylister.workday.WorkdayPosting;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -60,7 +60,7 @@ public class JobPosting {
     protected JobPosting() {}
 
     /** A posting listed for the first time, by the given run. */
-    JobPosting(Company company, JobListing listing, ScrapeRun run) {
+    JobPosting(Company company, WorkdayPosting listing, ScrapeRun run) {
         this.company = company;
         this.requisitionId = listing.requisitionId();
         this.firstSeenRun = run;
@@ -68,7 +68,7 @@ public class JobPosting {
     }
 
     /** The given run has listed this posting (again): refresh what Workday shows and Last Seen. */
-    void seen(JobListing listing, ScrapeRun run) {
+    void seen(WorkdayPosting listing, ScrapeRun run) {
         this.title = listing.title();
         this.externalPath = listing.externalPath();
         this.locationText = listing.locationsText();

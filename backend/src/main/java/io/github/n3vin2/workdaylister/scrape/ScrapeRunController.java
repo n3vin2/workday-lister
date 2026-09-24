@@ -27,7 +27,10 @@ class ScrapeRunController {
         this.scrapeRunService = scrapeRunService;
     }
 
-    /** Accepted (202) with the run, which proceeds in the background; 409 when there is nothing to run over. */
+    /**
+     * Accepted (202) with the run, which proceeds in the background; 409 when there is nothing to
+     * run over.
+     */
     @PostMapping
     ResponseEntity<?> start() {
         return scrapeRunService

@@ -1,6 +1,5 @@
 package io.github.n3vin2.workdaylister.roster;
 
-import io.github.n3vin2.workdaylister.config.WorkdayClientProperties;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import java.net.URI;
@@ -37,6 +36,9 @@ public record CareerSite(
         }
     }
 
+    /** The domain every Career Site host ends in. */
+    public static final String PUBLIC_HOST_SUFFIX = "myworkdayjobs.com";
+
     private static final String MALFORMED_URL = "URL is malformed";
     private static final String NOT_WORKDAY_HOST =
             "URL host is not a Workday Career Site ({tenant}.wd{N}.myworkdayjobs.com)";
@@ -48,7 +50,8 @@ public record CareerSite(
     private static final int MAX_SITE_LENGTH = 255;
 
     private static final Pattern HOST =
-            Pattern.compile("([a-z0-9-]{1,63})\\.(wd\\d{1,13})\\.myworkdayjobs\\.com");
+            Pattern.compile(
+                    "([a-z0-9-]{1,63})\\.(wd\\d{1,13})\\." + Pattern.quote(PUBLIC_HOST_SUFFIX));
     private static final Pattern LOCALE_SEGMENT = Pattern.compile("[a-z]{2}-[A-Z]{2}");
 
     /**
@@ -90,12 +93,16 @@ public record CareerSite(
         return new CareerSite(host.group(1), host.group(2), site);
     }
 
+    /** This Career Site's own host, {@code {tenant}.wd{N}.myworkdayjobs.com}. */
+    public String publicHost() {
+        return tenant + "." + pod + "." + PUBLIC_HOST_SUFFIX;
+    }
+
     /**
      * The public page of one Job Posting on this Career Site, as Workday's detail endpoint reports
      * it: the Career Site's own host and site name followed by the posting's external path.
      */
     public String postingUrl(String externalPath) {
-        return "https://" + tenant + "." + pod + "." + WorkdayClientProperties.PUBLIC_HOST_SUFFIX
-                + "/" + site + externalPath;
+        return "https://" + publicHost() + "/" + site + externalPath;
     }
 }

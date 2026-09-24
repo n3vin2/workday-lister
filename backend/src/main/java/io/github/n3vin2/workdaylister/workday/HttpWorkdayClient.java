@@ -2,7 +2,6 @@ package io.github.n3vin2.workdaylister.workday;
 
 import io.github.n3vin2.workdaylister.config.WorkdayClientProperties;
 import io.github.n3vin2.workdaylister.roster.CareerSite;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Map;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
@@ -16,17 +15,14 @@ import org.springframework.web.client.RestClient;
  * The Workday client over HTTP: {@code POST {base}/wday/cxs/{tenant}/{site}/jobs} for a page and
  * {@code GET {base}/wday/cxs/{tenant}/{site}{externalPath}} for a detail, where {@code base} comes
  * from {@link WorkdayClientProperties} so tests can point every Career Site at a stub. Every request
- * carries {@code Content-Type: application/json} and {@code Accept-Language: en-US} (ADR-0001).
+ * carries {@code Content-Type: application/json} and {@code Accept-Language: en-US} (ADR-0001),
+ * bounded by the configured connect and read timeouts.
  *
  * <p>Pacing and retry arrive with a later ticket; an error response is thrown as a
  * {@link org.springframework.web.client.RestClientException}.
  */
 @Component
 class HttpWorkdayClient implements WorkdayClient {
-
-    /** Bounds on a single request, so a silent Career Site cannot stall the Scrape Run thread. */
-    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration READ_TIMEOUT = Duration.ofSeconds(30);
 
     private final WorkdayClientProperties properties;
     private final RestClient http;
@@ -38,8 +34,10 @@ class HttpWorkdayClient implements WorkdayClient {
                                 ClientHttpRequestFactoryBuilder.detect()
                                         .build(
                                                 ClientHttpRequestFactorySettings.defaults()
-                                                        .withConnectTimeout(CONNECT_TIMEOUT)
-                                                        .withReadTimeout(READ_TIMEOUT)))
+                                                        .withConnectTimeout(
+                                                                properties.connectTimeout())
+                                                        .withReadTimeout(
+                                                                properties.readTimeout())))
                         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                         .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                         .defaultHeader(HttpHeaders.ACCEPT_LANGUAGE, "en-US")
@@ -66,8 +64,7 @@ class HttpWorkdayClient implements WorkdayClient {
     }
 
     private String careerSiteUrl(CareerSite site) {
-        return properties.baseUrlFor(site.tenant(), site.pod())
-                + "/wday/cxs/" + site.tenant() + "/" + site.site();
+        return properties.baseUrlFor(site) + "/wday/cxs/" + site.tenant() + "/" + site.site();
     }
 
     /** The body of a jobs request, as the Career Site's own frontend sends it. */

@@ -26,6 +26,7 @@ public record PostingSummary(
                 posting.getLastSeenRun().getId());
     }
 
+    /** The given postings as cards, in the order given. */
     public static List<PostingSummary> ofAll(List<JobPosting> postings) {
         return postings.stream().map(PostingSummary::of).toList();
     }

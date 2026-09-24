@@ -10,4 +10,4 @@ import java.util.List;
  *     Workday reports it on the first page only and sends 0 on later pages
  * @param postings the postings on this page, up to {@link WorkdayClient#PAGE_SIZE}
  */
-public record JobPage(int total, @JsonProperty("jobPostings") List<JobListing> postings) {}
+public record JobPage(int total, @JsonProperty("jobPostings") List<WorkdayPosting> postings) {}

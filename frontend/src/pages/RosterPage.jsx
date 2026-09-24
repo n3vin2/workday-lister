@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { listCompanies, uploadRoster } from '../api/roster.js'
 import { startRun } from '../api/runs.js'
+import Notice from '../components/Notice.jsx'
 import { formatDateTime, formatStatus } from '../format.js'
 
 const TRUNCATED_TITLE =
@@ -55,13 +56,17 @@ export default function RosterPage() {
           }
         }}
       />
-      <ScrapeNow disabled={companies === null || companies.length === 0} onStarted={reloadRoster} />
+      <ScrapeNowButton
+        disabled={companies === null || companies.length === 0}
+        onStarted={reloadRoster}
+      />
       {rejectedRows.length > 0 && <RejectedRows rows={rejectedRows} />}
       {loadFailed && (
         <p className="mt-6 rounded bg-red-50 px-3 py-2 text-red-800">
           Could not load the Roster. Is the Spring server running on port 8080?
         </p>
       )}
+      {companies === null && !loadFailed && <Notice>Loading the Roster…</Notice>}
       {companies !== null &&
         (companies.length === 0 ? <EmptyRoster /> : <CompanyTable companies={companies} />)}
     </main>
@@ -127,7 +132,7 @@ function UploadForm({ onUploaded }) {
   )
 }
 
-function ScrapeNow({ disabled, onStarted }) {
+function ScrapeNowButton({ disabled, onStarted }) {
   const [starting, setStarting] = useState(false)
   const [failure, setFailure] = useState(null)
 
@@ -187,9 +192,9 @@ function RejectedRows({ rows }) {
 
 function EmptyRoster() {
   return (
-    <p className="mt-6 rounded bg-gray-50 px-3 py-6 text-center text-gray-600">
+    <Notice>
       Your Roster is empty. Upload a CSV of Companies and their Career Site URLs to get started.
-    </p>
+    </Notice>
   )
 }
 
@@ -208,7 +213,10 @@ function CompanyTable({ companies }) {
         {companies.map((company) => (
           <tr key={company.id} className="border-b border-gray-100">
             <td className="py-2 pr-4 font-medium">
-              <Link to={`/companies/${company.id}`} className="text-blue-700 hover:underline">
+              <Link
+                to={`/companies/${company.id}`}
+                className="text-blue-700 hover:underline"
+              >
                 {company.name}
               </Link>
             </td>
