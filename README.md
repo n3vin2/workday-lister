@@ -2,7 +2,8 @@
 
 A single-user tool that reads a Roster of Companies' Workday Career Sites from a CSV, scrapes every
 Job Posting from each, and shows which postings appeared today. Vocabulary is defined in
-[CONTEXT.md](CONTEXT.md); design decisions live in [docs/adr](docs/adr).
+[CONTEXT.md](CONTEXT.md); design decisions live in [docs/adr](docs/adr); code conventions in
+[CODING_STANDARDS.md](CODING_STANDARDS.md).
 
 ## Development setup
 
@@ -51,6 +52,7 @@ commands 1 and 2; Compose and the backend both read it.
 | `compose.yaml` | MySQL for local development.                                                       |
 | `docs/adr/` | Architecture decision records.                                                        |
 | `docs/agents/` | How agents use the issue tracker, triage labels, and domain docs.                  |
+| `CODING_STANDARDS.md` | How code in both parts is formatted, named, structured, and tested.         |
 
 ## Configuration
 

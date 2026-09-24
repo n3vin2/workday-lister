@@ -11,3 +11,7 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 ### Domain docs
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Coding standards
+
+`CODING_STANDARDS.md` at the repo root: formatting, naming, layering, and test conventions for `backend/` and `frontend/`. Read it before writing or reviewing code in either.
