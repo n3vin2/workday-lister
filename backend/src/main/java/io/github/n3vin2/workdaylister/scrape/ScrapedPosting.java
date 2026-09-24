@@ -11,4 +11,10 @@ import java.time.LocalDate;
  * @param postingDate the detail's {@code startDate}; {@code null} for every other label, whose
  *     detail the run never asks for
  */
-record ScrapedPosting(WorkdayPosting posting, LocalDate postingDate) {}
+record ScrapedPosting(WorkdayPosting posting, LocalDate postingDate) {
+
+    /** The requisition ID that identifies the posting within its Career Site. */
+    String requisitionId() {
+        return posting.requisitionId();
+    }
+}

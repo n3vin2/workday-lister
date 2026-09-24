@@ -23,6 +23,7 @@ export default function CompanyPage() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setLoadFailed(false)
     getCompany(id, { scope: showAll ? 'all' : 'today', includeClosed })
       .then((result) => {
         if (cancelled) return
@@ -45,6 +46,16 @@ export default function CompanyPage() {
     }
   }, [id, showAll, includeClosed])
 
+  function handleShowAllChange(checked) {
+    setShowAll(checked)
+    setLoading(true)
+  }
+
+  function handleIncludeClosedChange(checked) {
+    setIncludeClosed(checked)
+    setLoading(true)
+  }
+
   return (
     <main className="mx-auto max-w-4xl p-6">
       <Link to="/" className="text-sm text-blue-700 hover:underline">
@@ -53,24 +64,23 @@ export default function CompanyPage() {
       {loading && company === null && <Notice>Loading the Company…</Notice>}
       {notFound && <Notice>This Company is not in the Roster.</Notice>}
       {loadFailed && (
-        <p className="mt-6 rounded bg-red-50 px-3 py-2 text-red-800">
+        <p role="alert" className="mt-6 rounded bg-red-50 px-3 py-2 text-red-800">
           Could not load this Company. Is the Spring server running on port 8080?
         </p>
       )}
-      {company !== null && !notFound && !loadFailed && (
+      {company !== null && !notFound && (
         <>
           <CompanyHeader company={company} />
           {company.status !== 'NEVER_SCRAPED' && (
             <PostingFilters
               showAll={showAll}
               includeClosed={includeClosed}
-              onShowAllChange={setShowAll}
-              onIncludeClosedChange={setIncludeClosed}
+              onShowAllChange={handleShowAllChange}
+              onIncludeClosedChange={handleIncludeClosedChange}
             />
           )}
-          {loading ? (
-            <Notice>Loading postings…</Notice>
-          ) : (
+          {loading && <Notice>Loading postings…</Notice>}
+          {!loading && !loadFailed && (
             <Postings company={company} showAll={showAll} includeClosed={includeClosed} />
           )}
         </>
@@ -135,6 +145,13 @@ function Postings({ company, showAll, includeClosed }) {
   if (company.postings.length === 0) {
     if (showAll) {
       return <Notice>{includeClosed ? 'No postings, Open or Closed.' : 'No Open postings.'}</Notice>
+    }
+    if (includeClosed) {
+      return (
+        <Notice>
+          No Today's Postings, Open or Closed. Tick "Show all Open postings" to see every posting.
+        </Notice>
+      )
     }
     if (company.openCount === 0) return <Notice>No Open postings.</Notice>
     return (

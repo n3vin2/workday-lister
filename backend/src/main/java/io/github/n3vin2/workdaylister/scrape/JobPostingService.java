@@ -12,8 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Reads the Job Postings that Scrape Runs have stored for a Company, including its Today's
  * Postings: the Open postings whose Posting Date is today in the configured timezone (ADR-0002).
- * "Today" is read from the clock on every call, so a run's results age overnight without a
- * re-scrape.
+ * "Today" is read from the clock on every call, so a posting stops being today's at midnight
+ * without a re-scrape.
  */
 @Service
 public class JobPostingService {

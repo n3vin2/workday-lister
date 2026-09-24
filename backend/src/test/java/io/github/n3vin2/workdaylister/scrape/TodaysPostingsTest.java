@@ -8,12 +8,14 @@ import static io.github.n3vin2.workdaylister.WorkdayPages.POSTED_TODAY;
 import static io.github.n3vin2.workdaylister.WorkdayPages.POSTED_YESTERDAY;
 import static io.github.n3vin2.workdaylister.WorkdayPages.detail;
 import static io.github.n3vin2.workdaylister.WorkdayPages.listing;
+import static io.github.n3vin2.workdaylister.WorkdayPages.page;
 import static io.github.n3vin2.workdaylister.WorkdayPages.postings;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import io.github.n3vin2.workdaylister.IntegrationHarness;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -33,6 +35,8 @@ class TodaysPostingsTest extends IntegrationHarness {
     private static final String BETA_JOBS = BETA_SITE + "/jobs";
     private static final String ZED_SITE = "/wday/cxs/zed/Careers";
     private static final String ZED_JOBS = ZED_SITE + "/jobs";
+
+    private static final int PAGE = 20;
 
     private static final String ACME_ONLY =
             """
@@ -154,19 +158,71 @@ class TodaysPostingsTest extends IntegrationHarness {
         assertThat(ints(roster, "openCount")).containsExactly(3, 2, 1);
         assertThat(company(longs(roster, "id").get(0), "today").path("todayCount").asInt())
                 .isEqualTo(2);
-        // A re-upload keeps every Company's postings, so its response lists the Roster the same
-        // way.
-        JsonNode replaced = uploadRoster(THREE_COMPANIES).getBody().path("companies");
-        assertThat(texts(replaced, "name")).containsExactly("Beta", "Zed", "Acme");
-        assertThat(ints(replaced, "todayCount")).containsExactly(2, 2, 0);
     }
 
-    /** Uploads the Roster, which starts a run, waits for that run to finish, and returns its id. */
-    private long uploadAndAwaitRun(String csv) {
-        ResponseEntity<JsonNode> upload = uploadRoster(csv);
-        assertThat(upload.getStatusCode()).isEqualTo(HttpStatus.OK);
-        long runId = upload.getBody().path("run").path("id").asLong();
-        awaitRunFinished(runId);
-        return runId;
+    @Test
+    void aReuploadKeepsEveryCompanysPostingsSoItsResponseListsTheRosterTheSameWay() {
+        stubJobs(
+                ZED_JOBS,
+                0,
+                postings(listing("Accountant", ACCOUNTANT_PATH, "Regina, SK", POSTED_TODAY)));
+        stubDetail(ZED_SITE + ACCOUNTANT_PATH, detail(PINNED_TODAY));
+        uploadAndAwaitRun(THREE_COMPANIES);
+
+        JsonNode replaced = uploadRoster(THREE_COMPANIES).getBody().path("companies");
+
+        assertThat(texts(replaced, "name")).containsExactly("Zed", "Acme", "Beta");
+        assertThat(ints(replaced, "todayCount")).containsExactly(1, 0, 0);
+    }
+
+    @Test
+    void aPostingListedOnTwoPagesCostsOneDetailRequest() {
+        List<String> firstPage = new ArrayList<>();
+        for (int n = 1; n < PAGE; n++) {
+            firstPage.add(
+                    listing(
+                            "Engineer " + n,
+                            "/job/Regina-SK/Engineer-%d_E%d".formatted(n, n),
+                            "Regina, SK",
+                            POSTED_LONG_AGO));
+        }
+        String accountant = listing("Accountant", ACCOUNTANT_PATH, "Regina, SK", POSTED_TODAY);
+        firstPage.add(accountant);
+        stubJobs(ACME_JOBS, 0, page(PAGE + 1, firstPage));
+        stubJobs(ACME_JOBS, PAGE, postings(accountant));
+        stubDetail(ACME_SITE + ACCOUNTANT_PATH, detail(PINNED_TODAY));
+
+        uploadAndAwaitRun(ACME_ONLY);
+
+        JsonNode roster = companies();
+        assertThat(ints(roster, "openCount")).containsExactly(PAGE);
+        assertThat(ints(roster, "todayCount")).containsExactly(1);
+        assertThat(workday.findAll(getRequestedFor(urlMatching(ACME_SITE + "/job/.*"))))
+                .hasSize(1);
+    }
+
+    @Test
+    void aClosedPostingWithTodaysPostingDateIsTodaysOnlyWhenClosedOnesAreAskedFor() {
+        String accountant = listing("Accountant", ACCOUNTANT_PATH, "Regina, SK", POSTED_TODAY);
+        String clerk = listing("Clerk", CLERK_PATH, "Regina, SK", POSTED_LONG_AGO);
+        stubJobs(ACME_JOBS, 0, postings(accountant, clerk));
+        stubDetail(ACME_SITE + ACCOUNTANT_PATH, detail(PINNED_TODAY));
+        uploadAndAwaitRun(ACME_ONLY);
+        long acmeId = companies().get(0).path("id").asLong();
+        stubJobs(ACME_JOBS, 0, postings(clerk));
+
+        startAndAwaitRun();
+
+        JsonNode today = company(acmeId, "today");
+        assertThat(today.path("postings")).isEmpty();
+        assertThat(today.path("todayCount").asInt()).isZero();
+        assertThat(ints(companies(), "todayCount")).containsExactly(0);
+        JsonNode todayWithClosed = company(acmeId, "today", true).path("postings");
+        assertThat(texts(todayWithClosed, "requisitionId")).containsExactly("R1");
+        assertThat(texts(todayWithClosed, "state")).containsExactly("CLOSED");
+        assertThat(texts(todayWithClosed, "postingDate")).containsExactly("2026-09-21");
+        JsonNode allWithClosed = company(acmeId, "all", true).path("postings");
+        assertThat(texts(allWithClosed, "requisitionId")).containsExactly("R1", "R2");
+        assertThat(texts(allWithClosed, "state")).containsExactly("CLOSED", "OPEN");
     }
 }

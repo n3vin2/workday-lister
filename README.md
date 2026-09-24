@@ -90,13 +90,13 @@ next check between Companies or requests, so a wait in progress finishes first.
 
 ## Today's Postings
 
-Workday's list only labels a posting's age relative to the employer's timezone ("Posted Today",
-"Posted Yesterday", "Posted 30+ Days Ago"), so the run fetches the posting's detail, which carries
-an absolute `startDate`, for postings labelled "Posted Today" or "Posted Yesterday" only, and stores
-that date as the Posting Date ([ADR-0002](docs/adr/0002-posted-today-definition.md)). Every other
-posting costs no extra request and has no Posting Date. A Company's Today's Postings are its Open
-postings whose Posting Date equals the current date in `scraper.timezone` (default
-`America/Regina`), judged when the page is loaded, so yesterday's results age out at midnight
+Workday's list only labels a posting's age relative to the Career Site's timezone ("Posted
+Today", "Posted Yesterday", "Posted 30+ Days Ago"), so the run fetches the posting's detail, which
+carries an absolute `startDate`, for postings labelled "Posted Today" or "Posted Yesterday" only,
+and stores that date as the Posting Date ([ADR-0002](docs/adr/0002-posted-today-definition.md)).
+Every other posting costs no extra request and has no Posting Date. A Company's Today's Postings
+are its Open postings whose Posting Date equals the current date in `scraper.timezone` (default
+`America/Regina`), judged when the page is loaded, so a posting stops being today's at midnight
 without a re-scrape.
 
 The Roster screen shows each Company's today's count, Open posting count, last scraped time and

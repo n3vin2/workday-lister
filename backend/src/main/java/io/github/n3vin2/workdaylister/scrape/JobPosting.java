@@ -82,7 +82,7 @@ public class JobPosting {
     /** A posting listed for the first time, by the given run; Open, like anything just listed. */
     JobPosting(Company company, ScrapedPosting scraped, ScrapeRun run) {
         this.company = company;
-        this.requisitionId = scraped.posting().requisitionId();
+        this.requisitionId = scraped.requisitionId();
         this.firstSeenRun = run;
         seen(scraped, run);
     }

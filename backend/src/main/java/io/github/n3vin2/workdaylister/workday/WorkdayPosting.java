@@ -14,11 +14,13 @@ package io.github.n3vin2.workdaylister.workday;
 public record WorkdayPosting(
         String title, String externalPath, String locationsText, String postedOn) {
 
-    /** Workday's en-US label for a posting that went live today, in the employer's timezone. */
-    public static final String POSTED_TODAY = "Posted Today";
+    /** Workday's en-US label for a posting that went live today, in the Career Site's timezone. */
+    private static final String POSTED_TODAY = "Posted Today";
 
-    /** Workday's en-US label for a posting that went live yesterday, in the employer's timezone. */
-    public static final String POSTED_YESTERDAY = "Posted Yesterday";
+    /**
+     * Workday's en-US label for a posting that went live yesterday, in the Career Site's timezone.
+     */
+    private static final String POSTED_YESTERDAY = "Posted Yesterday";
 
     /**
      * Whether Workday's label says this posting went live today or yesterday. Only such a posting

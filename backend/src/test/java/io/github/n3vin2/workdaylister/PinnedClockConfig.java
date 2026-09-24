@@ -15,8 +15,11 @@ import org.springframework.context.annotation.Primary;
 @TestConfiguration
 public class PinnedClockConfig {
 
-    /** 2026-09-21 09:00 in America/Regina. */
-    public static final Instant PINNED_NOW = Instant.parse("2026-09-21T15:00:00Z");
+    /**
+     * 2026-09-21 21:00 in America/Regina, which is already 2026-09-22 in UTC: "today" computed in
+     * the wrong zone is the wrong date, so the tests prove the zone matters.
+     */
+    public static final Instant PINNED_NOW = Instant.parse("2026-09-22T03:00:00Z");
 
     /** The calendar date of {@link #PINNED_NOW} in America/Regina: "today" for Today's Postings. */
     public static final LocalDate PINNED_TODAY = LocalDate.of(2026, 9, 21);

@@ -57,14 +57,21 @@ function companyIs(company) {
   server.use(http.get('/api/companies/2', () => HttpResponse.json(company)))
 }
 
-/** Serves NVIDIA with one list of postings for scope=today and another for scope=all. */
-function companyServes({ today, all }) {
+/**
+ * Serves NVIDIA with one list of postings for scope=today and another for scope=all, failing a
+ * request when `failing(scope)` says so; returns the scopes asked for so far, in order.
+ */
+function companyServes({ today, all, failing = () => false }) {
+  const scopes = []
   server.use(
     http.get('/api/companies/2', ({ request }) => {
       const scope = new URL(request.url).searchParams.get('scope')
+      scopes.push(scope)
+      if (failing(scope)) return HttpResponse.error()
       return HttpResponse.json({ ...nvidia, postings: scope === 'all' ? all : today })
     }),
   )
+  return scopes
 }
 
 // The backend hides Closed postings unless asked with includeClosed=true.
@@ -98,13 +105,7 @@ function renderCompany() {
 }
 
 test("shows Today's Postings by default, each card with title, location, Posting Date and requisition ID", async () => {
-  const scopes = []
-  server.use(
-    http.get('/api/companies/2', ({ request }) => {
-      scopes.push(new URL(request.url).searchParams.get('scope'))
-      return HttpResponse.json({ ...nvidia, postings: [engineer] })
-    }),
-  )
+  const scopes = companyServes({ today: [engineer], all: [engineer, tester] })
 
   renderCompany()
 
@@ -130,9 +131,34 @@ test("show all reveals every Open posting with its Posting Date where known; unt
     'Software QA Engineer2 LocationsJR1990001',
   ])
   expect(screen.getByLabelText(/show all open postings/i)).toBeChecked()
+
   toggleShowAll()
+
   const today = await screen.findByRole('list', { name: /today's postings/i })
   expect(within(today).getAllByRole('listitem')).toHaveLength(1)
+})
+
+test('a failed scope switch reports the failure instead of the wrong list, and the next switch recovers', async () => {
+  let allFails = true
+  companyServes({
+    today: [engineer],
+    all: [engineer, tester],
+    failing: (scope) => scope === 'all' && allFails,
+  })
+  renderCompany()
+  await screen.findByRole('list', { name: /today's postings/i })
+
+  toggleShowAll()
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(/could not load this company/i)
+  expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'NVIDIA' })).toBeInTheDocument()
+
+  allFails = false
+  toggleShowAll()
+
+  await screen.findByRole('list', { name: /today's postings/i })
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
 
 test('a Company with nothing today explains why instead of a blank page, and show all still works', async () => {
@@ -144,9 +170,22 @@ test('a Company with nothing today explains why instead of a blank page, and sho
     await screen.findByText(/none of this company's 2 open postings has today's posting date/i),
   ).toBeInTheDocument()
   expect(screen.queryByRole('list')).not.toBeInTheDocument()
+
   toggleShowAll()
+
   const all = await screen.findByRole('list', { name: /^open postings$/i })
   expect(within(all).getAllByRole('listitem')).toHaveLength(2)
+})
+
+test('a Company with nothing today, Closed ones included, says so and points at Show all', async () => {
+  companyServes({ today: [], all: [engineer, tester] })
+  renderCompany()
+  await screen.findByText(/none of this company's 2 open postings has today's posting date/i)
+
+  toggleIncludeClosed()
+
+  expect(await screen.findByText(/no today's postings, open or closed/i)).toBeInTheDocument()
+  expect(screen.queryByRole('list')).not.toBeInTheDocument()
 })
 
 test("a card's title links to the posting on Workday in a new tab", async () => {

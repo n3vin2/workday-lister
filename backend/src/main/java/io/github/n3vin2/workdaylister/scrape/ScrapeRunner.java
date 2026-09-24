@@ -7,7 +7,9 @@ import io.github.n3vin2.workdaylister.workday.WorkdayPosting;
 import jakarta.annotation.PreDestroy;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -154,8 +156,7 @@ class ScrapeRunner {
      * total, because Workday answers a request past the end with a full page again rather than an
      * empty one; at the first short page, because the Career Site may have shrunk since the first
      * page was read; and at {@link WorkdayClient#MAX_POSTINGS}, past which Workday lists nothing. A
-     * Career Site reporting that many is truncated: the count is a floor, not the truth. Once the
-     * whole list is in hand, each posting's Posting Date is fetched where its label warrants it.
+     * Career Site reporting that many is truncated: the count is a floor, not the truth.
      *
      * <p>Empty when cancellation was requested before a page or a detail was read: the Career
      * Site's listing is then incomplete and none of it is to be applied.
@@ -179,21 +180,37 @@ class ScrapeRunner {
                 && offset < total
                 && offset < WorkdayClient.MAX_POSTINGS);
         boolean truncated = total >= WorkdayClient.MAX_POSTINGS;
-        List<ScrapedPosting> scraped = new ArrayList<>(postings.size());
-        for (WorkdayPosting posting : postings) {
+        return withPostingDates(run, site, postings)
+                .map(scraped -> new CareerSitePostings(scraped, truncated));
+    }
+
+    /**
+     * The listed postings, each with its Posting Date where its label warrants a detail request. A
+     * posting Workday lists twice across pages (its paging shifts as postings appear) is kept once,
+     * so it costs at most one request. Empty when cancellation was requested before a detail was
+     * read: the flag is checked before each detail request as it is before each page.
+     */
+    private Optional<List<ScrapedPosting>> withPostingDates(
+            ActiveRun run, CareerSite site, List<WorkdayPosting> listed) {
+        Map<String, WorkdayPosting> distinct = new LinkedHashMap<>();
+        for (WorkdayPosting posting : listed) {
+            distinct.putIfAbsent(posting.requisitionId(), posting);
+        }
+        List<ScrapedPosting> scraped = new ArrayList<>(distinct.size());
+        for (WorkdayPosting posting : distinct.values()) {
             if (run.cancelRequested && posting.postedTodayOrYesterday()) {
                 return Optional.empty();
             }
             scraped.add(new ScrapedPosting(posting, postingDateOf(site, posting)));
         }
-        return Optional.of(new CareerSitePostings(scraped, truncated));
+        return Optional.of(scraped);
     }
 
     /**
      * The Posting Date of a posting labelled "Posted Today" or "Posted Yesterday", from its detail;
      * {@code null} for any other label, which costs no request (ADR-0002). A detail that cannot be
      * read fails the Company like a page that cannot be read; storing the posting without a date
-     * instead arrives with a later ticket.
+     * instead is #9.
      */
     private LocalDate postingDateOf(CareerSite site, WorkdayPosting posting) {
         if (!posting.postedTodayOrYesterday()) {

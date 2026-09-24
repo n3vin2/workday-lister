@@ -37,7 +37,8 @@ class CompanyController {
     /** The {@code scope} values the Company endpoint knows; anything else is a 400. */
     private static final String SCOPE_TODAY = "today";
     private static final String SCOPE_ALL = "all";
-    private static final String UNKNOWN_SCOPE = "Unknown scope \"%s\": use today (the default) or all";
+    private static final String UNKNOWN_SCOPE =
+            "Unknown scope \"%s\": use today (the default) or all";
 
     private final RosterService rosterService;
     private final JobPostingService jobPostingService;

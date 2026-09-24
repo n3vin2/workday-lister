@@ -114,7 +114,7 @@ class ScrapeRecorder {
         }
         Set<String> seen = new HashSet<>();
         for (ScrapedPosting scraped : listed.postings()) {
-            String requisitionId = scraped.posting().requisitionId();
+            String requisitionId = scraped.requisitionId();
             if (!seen.add(requisitionId)) {
                 continue;
             }
