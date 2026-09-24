@@ -132,7 +132,7 @@ class ScrapeRecorder {
     /**
      * The run stopped at the user's request: the Companies it had not reached are marked cancelled
      * (their own status is untouched, as nothing happened to them) and so is the run. Companies it
-     * finished keep their results.
+     * finished keep their Job Postings and Company Outcome.
      */
     @Transactional
     public void cancel(long runId) {

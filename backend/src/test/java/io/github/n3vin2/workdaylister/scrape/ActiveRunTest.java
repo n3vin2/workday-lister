@@ -48,7 +48,6 @@ class ActiveRunTest extends IntegrationHarness {
 
     @Test
     void theCurrentRunReportsProgressWhileActiveAndNoContentWhenIdle() {
-        assertThat(currentRun().getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         stubJobs(ACME_JOBS, 0, jobsPage(3, 0, 3));
         holdJobs(BETA_JOBS, jobsPage(1, 0, 1));
         holdResponses();
@@ -68,8 +67,10 @@ class ActiveRunTest extends IntegrationHarness {
         assertThat(run.path("done").asInt()).isEqualTo(1);
         assertThat(run.path("total").asInt()).isEqualTo(2);
         assertThat(texts(run.path("outcomes"), "name")).containsExactly("Acme", "Beta");
+
         releaseHeldResponses();
         awaitIdle();
+
         assertThat(currentRun().getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         JsonNode finished = run(runId);
         assertThat(finished.path("status").asText()).isEqualTo("SUCCEEDED");
@@ -87,9 +88,11 @@ class ActiveRunTest extends IntegrationHarness {
 
         assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(refused.getBody().path("reason").asText()).isEqualTo(RUN_IN_PROGRESS);
+
         releaseHeldResponses();
         awaitIdle();
         ResponseEntity<JsonNode> started = startRun();
+
         assertThat(started.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(started.getBody().path("id").asLong()).isNotEqualTo(firstRun);
     }
@@ -110,8 +113,10 @@ class ActiveRunTest extends IntegrationHarness {
         assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(refused.getBody().path("reason").asText()).isEqualTo(RUN_IN_PROGRESS);
         assertThat(texts(companies(), "name")).containsExactly("Acme", "Beta");
+
         releaseHeldResponses();
         awaitIdle();
+
         JsonNode run = run(runId);
         assertThat(run.path("status").asText()).isEqualTo("SUCCEEDED");
         assertThat(texts(run.path("outcomes"), "status")).containsExactly("SUCCEEDED", "SUCCEEDED");
@@ -119,7 +124,7 @@ class ActiveRunTest extends IntegrationHarness {
     }
 
     @Test
-    void cancelBetweenCompaniesKeepsFinishedResultsAndCancelsTheRest() {
+    void cancelBetweenCompaniesKeepsFinishedCompaniesAndCancelsTheRest() {
         stubJobs(ACME_JOBS, 0, jobsPage(3, 0, 3));
         holdJobs(BETA_JOBS, jobsPage(2, 0, 2));
         holdResponses();
@@ -133,8 +138,10 @@ class ActiveRunTest extends IntegrationHarness {
 
         assertThat(cancel.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(cancel.getBody().path("id").asLong()).isEqualTo(runId);
+
         releaseHeldResponses();
         awaitIdle();
+
         JsonNode run = run(runId);
         assertThat(run.path("status").asText()).isEqualTo("CANCELLED");
         assertThat(run.path("finishedAt").asText()).isEqualTo(PINNED_NOW);
@@ -171,6 +178,7 @@ class ActiveRunTest extends IntegrationHarness {
 
         releaseHeldResponses();
         awaitIdle();
+
         JsonNode run = run(secondRun);
         assertThat(run.path("status").asText()).isEqualTo("CANCELLED");
         JsonNode beta = run.path("outcomes").get(1);

@@ -16,10 +16,11 @@ export function formatStatus(status) {
   return STATUS_LABELS[status] ?? status
 }
 
+const pad = (part) => String(part).padStart(2, '0')
+
 /** An ISO instant as `YYYY-MM-DD HH:MM` in the browser's timezone, the same on every locale. */
 export function formatDateTime(iso) {
   const date = new Date(iso)
-  const pad = (part) => String(part).padStart(2, '0')
   const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
   return `${day} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
@@ -30,6 +31,5 @@ export function formatElapsed(ms) {
   const hours = Math.floor(totalSeconds / 3600)
   const minutes = Math.floor((totalSeconds % 3600) / 60)
   const seconds = totalSeconds % 60
-  const pad = (part) => String(part).padStart(2, '0')
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`
 }

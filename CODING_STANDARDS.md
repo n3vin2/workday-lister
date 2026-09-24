@@ -203,7 +203,7 @@ Prettier's defaults with `semi: false` and `singleQuote: true`, matched by hand 
 ### Styling
 
 - Tailwind v4 through `@tailwindcss/vite`; no `tailwind.config.js`. Utilities inline in `className`; compose with template literals. No CSS classes of our own, no `clsx`, no CSS modules.
-- Palette in use: gray text scale, `bg-blue-600` primary button, `bg-red-50 text-red-800` for errors, `rounded`, `text-sm`.
+- Palette in use: gray text scale, `bg-blue-600` primary button, `bg-white border-gray-300` secondary button (Cancel), `bg-blue-50 border-blue-200` for the active run's panel, `bg-red-50 text-red-800` for errors, `rounded`, `text-sm`.
 
 ### Accessibility, which the tests rely on
 

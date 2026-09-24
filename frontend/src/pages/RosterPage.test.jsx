@@ -38,10 +38,7 @@ const activeRun = {
   finishedAt: null,
   done: 1,
   total: 2,
-  outcomes: [
-    outcome(acme, 'SUCCEEDED'),
-    outcome(nvidia, 'IN_PROGRESS'),
-  ],
+  outcomes: [outcome(acme, 'SUCCEEDED'), outcome(nvidia, 'IN_PROGRESS')],
 }
 const RUN_IN_PROGRESS = 'A Scrape Run is in progress; wait for it to finish or cancel it'
 const startedRun = {

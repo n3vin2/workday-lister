@@ -12,24 +12,41 @@ const TRUNCATED_TITLE =
 const POLL_INTERVAL_MS = 2000
 
 /**
+ * The active run (null when none is) and then the Roster, in that order, so that when a poll finds
+ * the run over, the Roster it shows is the one the run left behind, not one read a moment earlier.
+ */
+async function loadRunThenRoster() {
+  const current = await getCurrentRun()
+  const roster = await listCompanies()
+  return { run: current.ok ? current.run : null, roster }
+}
+
+/**
  * The Roster screen: upload a CSV of Companies, start a Scrape Run over it, and see what the latest
  * run left for each Company. While a run is active the upload form and Scrape now give way to the
  * run's progress and a Cancel button, and each Company's row shows where the run is with it.
  */
 export default function RosterPage() {
   const [companies, setCompanies] = useState(null)
-  const [run, setRun] = useState(null)
+  // The active run; null when none is, which is also how the screen starts until it has asked.
+  const [activeRun, setActiveRun] = useState(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [rejectedRows, setRejectedRows] = useState([])
   const [refusal, setRefusal] = useState(null)
 
+  function showLoaded({ run, roster }) {
+    setActiveRun(run)
+    setCompanies(roster)
+    setLoadFailed(false)
+    // A "run in progress" refusal is no longer news once the run has ended.
+    if (run === null) setRefusal(null)
+  }
+
   useEffect(() => {
     let cancelled = false
-    Promise.all([listCompanies(), getCurrentRun()])
-      .then(([roster, current]) => {
-        if (cancelled) return
-        setCompanies(roster)
-        setRun(current)
+    loadRunThenRoster()
+      .then((loaded) => {
+        if (!cancelled) showLoaded(loaded)
       })
       .catch(() => {
         if (!cancelled) setLoadFailed(true)
@@ -41,19 +58,14 @@ export default function RosterPage() {
 
   // While a run is active, poll it and the Roster; the interval is cleared as soon as a poll finds
   // no run active, so an idle tab does not keep asking.
-  const polling = run !== null
+  const polling = activeRun !== null
   useEffect(() => {
     if (!polling) return undefined
     let cancelled = false
     const timer = setInterval(() => {
-      Promise.all([listCompanies(), getCurrentRun()])
-        .then(([roster, current]) => {
-          if (cancelled) return
-          setCompanies(roster)
-          setRun(current)
-          setLoadFailed(false)
-          // A "run in progress" refusal is no longer news once the run has ended.
-          if (current === null) setRefusal(null)
+      loadRunThenRoster()
+        .then((loaded) => {
+          if (!cancelled) showLoaded(loaded)
         })
         .catch(() => {
           if (!cancelled) setLoadFailed(true)
@@ -69,14 +81,14 @@ export default function RosterPage() {
   function showRefusal(message) {
     setRefusal(message)
     getCurrentRun()
-      .then(setRun)
+      .then((current) => setActiveRun(current.ok ? current.run : null))
       .catch(() => setLoadFailed(true))
   }
 
   function handleUploaded(result) {
     if (result.ok) {
       setCompanies(result.companies)
-      setRun(result.run)
+      setActiveRun(result.run)
       setLoadFailed(false)
       setRejectedRows([])
       setRefusal(null)
@@ -87,8 +99,8 @@ export default function RosterPage() {
     }
   }
 
-  function handleStarted(started) {
-    setRun(started)
+  function handleStarted(run) {
+    setActiveRun(run)
     setRefusal(null)
   }
 
@@ -101,8 +113,8 @@ export default function RosterPage() {
           {refusal}
         </p>
       )}
-      {run !== null ? (
-        <RunProgress run={run} />
+      {activeRun !== null ? (
+        <RunProgress run={activeRun} />
       ) : (
         <>
           <UploadForm onUploaded={handleUploaded} />
@@ -124,7 +136,7 @@ export default function RosterPage() {
         (companies.length === 0 ? (
           <EmptyRoster />
         ) : (
-          <CompanyTable companies={companies} run={run} />
+          <CompanyTable companies={companies} run={activeRun} />
         ))}
     </main>
   )

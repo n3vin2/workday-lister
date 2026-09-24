@@ -23,8 +23,9 @@ import org.springframework.stereotype.Component;
  * of it, not the source.
  *
  * <p>Cancelling sets a flag the run checks between Companies and between pages. Companies already
- * finished keep their results; the Company being read is cancelled with nothing applied, the
- * Companies not yet reached are cancelled untouched, and the run is recorded as cancelled.
+ * finished keep their Job Postings and Company Outcome; the Company being read is cancelled with
+ * nothing applied, the Companies not yet reached are cancelled untouched, and the run is recorded
+ * as cancelled.
  *
  * <p>An error on one Company is logged and the run moves on to the next, so one bad Career Site
  * does not cost the rest. Recording that failure on the Company and its outcome, pacing and retry
@@ -34,16 +35,24 @@ import org.springframework.stereotype.Component;
 @Component
 class ScrapeRunner {
 
+    /** The run being executed, or about to be, and whether the user has asked it to stop. */
+    private static final class ActiveRun {
+
+        private final long id;
+        private volatile boolean cancelRequested;
+
+        ActiveRun(long id) {
+            this.id = id;
+        }
+    }
+
     private static final Logger log = LoggerFactory.getLogger(ScrapeRunner.class);
 
     private final ScrapeRecorder recorder;
     private final WorkdayClient workday;
 
-    /** The run the worker is executing or about to execute; null while idle. */
-    private final AtomicReference<Long> activeRunId = new AtomicReference<>();
-
-    /** Whether the user has asked the active run to stop. */
-    private volatile boolean cancelRequested;
+    /** Null while the worker is idle. */
+    private final AtomicReference<ActiveRun> active = new AtomicReference<>();
 
     private final ExecutorService worker =
             Executors.newSingleThreadExecutor(
@@ -64,14 +73,14 @@ class ScrapeRunner {
      * finished or cancelled.
      */
     void launch(long runId) {
-        cancelRequested = false;
-        activeRunId.set(runId);
-        worker.execute(() -> execute(runId));
+        ActiveRun run = new ActiveRun(runId);
+        active.set(run);
+        worker.execute(() -> execute(run));
     }
 
     /** The id of the active run, or empty while the worker is idle. */
     Optional<Long> activeRun() {
-        return Optional.ofNullable(activeRunId.get());
+        return Optional.ofNullable(active.get()).map(run -> run.id);
     }
 
     /**
@@ -79,11 +88,12 @@ class ScrapeRunner {
      * the id of the run asked, or empty when the worker is idle and there is nothing to cancel.
      */
     Optional<Long> requestCancel() {
-        Optional<Long> active = activeRun();
-        if (active.isPresent()) {
-            cancelRequested = true;
+        ActiveRun run = active.get();
+        if (run == null) {
+            return Optional.empty();
         }
-        return active;
+        run.cancelRequested = true;
+        return Optional.of(run.id);
     }
 
     @PreDestroy
@@ -91,24 +101,23 @@ class ScrapeRunner {
         worker.shutdownNow();
     }
 
-    private void execute(long runId) {
+    private void execute(ActiveRun run) {
         try {
-            for (long outcomeId : recorder.outcomeIds(runId)) {
-                if (cancelRequested) {
+            for (long outcomeId : recorder.outcomeIds(run.id)) {
+                if (run.cancelRequested) {
                     break;
                 }
-                scrape(runId, outcomeId);
+                scrape(run, outcomeId);
             }
-            if (cancelRequested) {
-                recorder.cancel(runId);
+            if (run.cancelRequested) {
+                recorder.cancel(run.id);
             } else {
-                recorder.close(runId);
+                recorder.close(run.id);
             }
         } catch (RuntimeException e) {
-            log.error("Scrape Run {} stopped", runId, e);
+            log.error("Scrape Run {} stopped", run.id, e);
         } finally {
-            cancelRequested = false;
-            activeRunId.compareAndSet(runId, null);
+            active.compareAndSet(run, null);
         }
     }
 
@@ -116,15 +125,15 @@ class ScrapeRunner {
      * One Company's turn: mark it in progress, read its Career Site, store what was listed; or, if
      * the run was cancelled part-way through the pages, store nothing and mark it cancelled.
      */
-    private void scrape(long runId, long outcomeId) {
+    private void scrape(ActiveRun run, long outcomeId) {
         try {
             CareerSite site = recorder.begin(outcomeId);
-            readCareerSite(site)
+            readCareerSite(run, site)
                     .ifPresentOrElse(
                             listed -> recorder.record(outcomeId, listed),
                             () -> recorder.cancelCompany(outcomeId));
         } catch (RuntimeException e) {
-            log.error("Scrape Run {}: Company outcome {} failed", runId, outcomeId, e);
+            log.error("Scrape Run {}: Company outcome {} failed", run.id, outcomeId, e);
         }
     }
 
@@ -139,13 +148,13 @@ class ScrapeRunner {
      * <p>Empty when cancellation was requested before a page was read: the Career Site's listing
      * is then incomplete and none of it is to be applied.
      */
-    private Optional<CareerSitePostings> readCareerSite(CareerSite site) {
+    private Optional<CareerSitePostings> readCareerSite(ActiveRun run, CareerSite site) {
         List<WorkdayPosting> postings = new ArrayList<>();
         int total = 0;
         int offset = 0;
         JobPage page;
         do {
-            if (cancelRequested) {
+            if (run.cancelRequested) {
                 return Optional.empty();
             }
             page = workday.listJobs(site, offset);

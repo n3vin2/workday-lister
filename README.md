@@ -52,13 +52,13 @@ Job Posting each Career Site lists. A successful upload starts one; "Scrape now"
 screen starts another over the current Roster. Starting a run returns immediately.
 
 Only one run is active at a time. While one is, "Scrape now" and uploads are refused with a
-`409` and the screen says a run is in progress, so the Roster never changes under a run. The
-Roster screen polls the active run every 2 seconds, refreshing the Company list on each poll, and
-stops polling as soon as no run is active. Cancel asks the run to stop; it checks between Companies
-and between pages, so it stops within one Workday request. Companies it finished keep their
-results, the Company it was reading is marked cancelled with none of that Career Site's listing
-applied, the Companies it had not reached are left as they were, and the run is recorded as
-cancelled.
+`409` and the screen says a run is in progress, so the Roster never changes under a run (a CSV
+that fails validation is still rejected with a `400` first). The Roster screen polls the active
+run every 2 seconds, refreshing the Company list on each poll, and stops polling as soon as no run
+is active. Cancel asks the run to stop; it checks between Companies and between pages, so it stops
+within one Workday request. Companies it finished keep their Job Postings and Company Outcome, the
+Company it was reading is marked cancelled with none of that Career Site's listing applied, the
+Companies it had not reached are left as they were, and the run is recorded as cancelled.
 
 For each Company the run reads Workday's jobs endpoint in pages of 20 ([ADR-0001](docs/adr/0001-workday-cxs-json-endpoint.md)),
 stopping when the offset reaches the total the first page reported, at the first short page, or at
