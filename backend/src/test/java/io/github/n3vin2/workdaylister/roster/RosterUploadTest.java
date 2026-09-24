@@ -30,7 +30,6 @@ class RosterUploadTest extends IntegrationHarness {
         ResponseEntity<JsonNode> list = api.getForEntity("/api/companies", JsonNode.class);
         assertThat(list.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(names(list.getBody())).containsExactly("Acme", "NVIDIA");
-        assertThat(field(list.getBody(), "status")).containsOnly("NEVER_SCRAPED");
     }
 
     @Test
@@ -255,12 +254,8 @@ class RosterUploadTest extends IntegrationHarness {
     }
 
     private static List<String> names(JsonNode companies) {
-        return field(companies, "name");
-    }
-
-    private static List<String> field(JsonNode array, String field) {
         List<String> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asText()));
+        companies.forEach(node -> values.add(node.path("name").asText()));
         return values;
     }
 }

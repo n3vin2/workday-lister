@@ -40,10 +40,14 @@ Root package is `io.github.n3vin2.workdaylister`. Packages are **features**, not
 ```
 config/     ClockConfig, ScraperProperties, WorkdayClientProperties
 roster/     Company, CareerSite, CompanyStatus, CompanyRepository, RosterService,
-            CompanyController, RosterController, RosterCsv, RosterEntry, CompanySummary
+            CompanyController, RosterController, RosterCsv, RosterEntry, CompanySummary, CompanyDetail
+scrape/     ScrapeRun, CompanyOutcome, JobPosting and their statuses and repositories; ScrapeRecorder
+            (one transaction per step), ScrapeRunner (the background thread), ScrapeRunService,
+            JobPostingService, ScrapeRunController, RunSummary, PostingSummary
+workday/    WorkdayClient (the ADR-0001 adapter interface), HttpWorkdayClient, JobPage, JobListing, JobDetail
 ```
 
-- Default to package-private. Make a type or member `public` when another package, or a test in another package, needs it.
+- Default to package-private. Make a type or member `public` when another package, or a test in another package, needs it. `scrape` depends on `roster` and `workday`; `roster`'s controllers call back into `scrape` to start a run and to list a Company's postings, and that is the only cycle.
 - Tests mirror the main packages. The shared `IntegrationHarness` and `PinnedClockConfig` sit at the root test package.
 
 ### Types
@@ -60,7 +64,7 @@ roster/     Company, CareerSite, CompanyStatus, CompanyRepository, RosterService
 - Class suffixes: `*Controller`, `*Service` (one concrete class, no interface), `*Repository`, `*Properties`, `*Config`, `*Summary` for list-row responses, `*Test`. Endpoint-specific bodies are records nested in the controller and named for the outcome (`Replaced`, `Rejected`).
 - Methods: camelCase. Entities use JavaBean getters (`getName`); records and services use bare accessors (`name()`, `companies()`); operations are verbs (`replace`, `adopt`, `parse`).
 - Constants `UPPER_SNAKE`; enum constants `UPPER_SNAKE` (`NEVER_SCRAPED`).
-- Endpoints: `/api/<plural-noun>` for collections (`/api/companies`); `/api/roster` is singular because there is exactly one Roster. Health is `/api/health` via the actuator base path.
+- Endpoints: `/api/<plural-noun>` for collections (`/api/companies`, `/api/runs`) and `/api/<plural-noun>/{id}` for one of them; `/api/roster` is singular because there is exactly one Roster. Health is `/api/health` via the actuator base path.
 
 ### Formatting
 
@@ -103,7 +107,7 @@ public class RosterService {
 ### Controllers
 
 - `@RestController` with a class-level `@RequestMapping("/api/...")`; bare `@GetMapping` / `@PostMapping` on methods. The class and its handler methods are package-private.
-- When the status is always 200, return the body directly (`List<CompanySummary> list()`). When it varies, return `ResponseEntity<?>` built with `ResponseEntity.ok(...)` and `ResponseEntity.badRequest().body(...)`.
+- When the status is always 200, return the body directly (`List<CompanySummary> list()`). When it varies, return `ResponseEntity<?>` built with Spring's factories: `ok(...)`, `accepted()` for work that continues in the background, `badRequest().body(...)`, `status(HttpStatus.CONFLICT).body(...)`, `notFound().build()`. A refusal carries a one-field record saying why (`NotStarted(reason)`).
 - Validation failures are a 400 with a body that lists **every** error (`Rejected(errors)`), so the user fixes the file in one pass. They are not exceptions.
 - Controllers map entities to records (`CompanySummary.ofAll(...)`); services return entities.
 - Uploads: `@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)` with `@RequestParam("file") MultipartFile file`.
@@ -111,6 +115,7 @@ public class RosterService {
 ### Services
 
 - `@Service`. `@Transactional` from `org.springframework.transaction.annotation` on every public method, `readOnly = true` on reads. A whole replace-style operation is one transaction.
+- The one exception is a method that must act only after its transaction has committed (`ScrapeRunService.start` hands the run to the background thread): it is not transactional itself and delegates each step to a transactional method on another bean (`ScrapeRecorder`), never to one on its own class, which the proxy would not see. Work that talks to Workday happens between transactions, not inside one.
 - Methods are named for the domain operation, not the persistence call: `replace`, `companies`.
 
 ### Repositories
@@ -121,7 +126,9 @@ public class RosterService {
 
 - Schema changes are Flyway migrations `V<n>__<snake_name>.sql` under `src/main/resources/db/migration`; `spring.jpa.hibernate.ddl-auto` is `validate` and `open-in-view` is `false`. Never edit an applied migration.
 - SQL: uppercase keywords, snake_case identifiers, columns aligned, unique keys named `uk_<table>_<what>`, a `--` header comment explaining the table's key.
-- Entities: `@Entity @Table(name = "snake_case")`, `@Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id`, `@Column(nullable = false, length = N)` mirroring the migration, `@Enumerated(EnumType.STRING)` for enums, `@Embedded` for value objects, boxed field types (`Long`).
+- Entities: `@Entity @Table(name = "snake_case")`, `@Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id`, `@Column(nullable = false, length = N)` mirroring the migration, `@Enumerated(EnumType.STRING)` for enums, `@Embedded` for value objects, boxed field types (`Long`). `@ManyToOne(fetch = FetchType.LAZY)` with an explicit `@JoinColumn`, eager only where every reader needs the target (`CompanyOutcome.company`).
+- An entity that two writers update at once for different reasons (`Company`: an upload renames it, a run records results) is `@DynamicUpdate`, so each writes only its own columns and neither overwrites the other. Every step of background work reloads its entities by id inside its own transaction; nothing detached is saved back.
+- Foreign keys carry `ON DELETE CASCADE` where the child is meaningless without the parent (a Company's postings and outcomes), and no cascade where history must survive (a posting's First Seen run).
 
 ### Exceptions
 
@@ -135,8 +142,9 @@ public class RosterService {
 
 ### Tests
 
-- Integration tests extend `IntegrationHarness`: the full context on a random port, a Testcontainers MySQL via `@ServiceConnection`, a WireMock `workday` stub standing in for every Career Site, pacing set to zero, and the clock pinned by `PinnedClockConfig`. Both servers start once per JVM in a static block and are shared across classes.
-- Drive the application **only** through `api` (a `TestRestTemplate`) and the `workday` stub. No repository or service calls from tests.
+- Integration tests extend `IntegrationHarness`: the full context on a random port, a Testcontainers MySQL via `@ServiceConnection`, a WireMock `workday` stub standing in for every Career Site, pacing set to zero, and the clock pinned by `PinnedClockConfig`. Both servers start once per JVM in a static block and are shared across classes. Before each test the harness waits for the last Scrape Run it started, resets the stub, gives every Career Site an empty page as the fallback stub (so a run always finishes), and empties the Roster.
+- Drive the application **only** through `api` (a `TestRestTemplate`) and the `workday` stub. No repository or service calls from tests. Background work is observed by polling the API with Awaitility (`awaitRunFinished`) and Workday traffic through the stub's request journal (`workday.findAll`, `getAllServeEvents`), never through pacing or timing.
+- Recorded Workday responses live under `src/test/resources/wiremock/__files/workday/` with a README naming the capture; tests that need a particular `total` or page length build pages in the same shape with a helper.
 - One test class per feature, `*Test`. Method names are sentences in camelCase with no `test` or `should` prefix: `reuploadKeepsMatchingIdsAdoptsNewNamesAndDeletesAbsentCompanies`.
 - AssertJ `assertThat`; a blank line separates act from assert; CSV fixtures are text blocks; private static helpers (`errors`, `names`) sit at the bottom of the class.
 - Configuration records are tested with `ApplicationContextRunner` and a nested `static class Config` carrying `@EnableConfigurationProperties`.
@@ -154,6 +162,7 @@ src/App.jsx                     Routes only
 src/pages/<Name>Page.jsx        one routed screen
 src/pages/<Name>Page.test.jsx   its tests, beside it
 src/api/<resource>.js           every fetch call for one resource
+src/format.js                   formatting both screens share (formatDateTime, formatStatus)
 src/test/{setup,server,multipart}.js
 src/index.css                   @import "tailwindcss"; nothing else
 ```
@@ -204,6 +213,7 @@ Prettier's defaults with `semi: false` and `singleQuote: true`, matched by hand 
 - Titles are sentences describing behaviour: `a rejected upload lists every bad row with its line and reason and keeps the Roster`.
 - Arrange, act, and assert separated by blank lines. Small named helpers (`rosterIs`, `chooseAndUpload`) at the top of the file.
 - Query by role and label text (`findByRole`, `getByLabelText`); `findBy*` for anything asynchronous; assert lists as `textContent` arrays. No test ids.
+- Screens that use `Link` or `useParams` render inside a `MemoryRouter` (with `Routes` when the screen reads a path parameter). `setup.js` pins `process.env.TZ` to `America/Regina` so formatted times are the same on every machine.
 
 ### Tooling
 
@@ -260,7 +270,4 @@ above it together, and reformat the affected files in the same change.
 
 Not style rules. One line each, for follow-up.
 
-- `frontend/src/pages/RosterPage.jsx`: `RejectedRows` uses `key={index}`. `row.line` alone is not unique either, since one row can carry two errors.
-- `backend/src/main/java/io/github/n3vin2/workdaylister/roster/Company.java`: `@Embedded private CareerSite careerSite;` keeps its annotation inline while every other field puts it on its own line.
-- `backend/src/test/java/io/github/n3vin2/workdaylister/PinnedClockConfig.java`: the `io.github` import sits after `java.time`, out of the ASCII order every other file follows.
 - `frontend/`: no ESLint config, so unused imports and hook dependency mistakes go unreported.

@@ -1,5 +1,7 @@
 package io.github.n3vin2.workdaylister.roster;
 
+import io.github.n3vin2.workdaylister.scrape.RunSummary;
+import io.github.n3vin2.workdaylister.scrape.ScrapeRunService;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -11,21 +13,26 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** {@code POST /api/roster}: upload a CSV that becomes the new Roster. */
+/**
+ * {@code POST /api/roster}: upload a CSV that becomes the new Roster. An accepted upload starts a
+ * Scrape Run over it at once, so submitting the file is a single action.
+ */
 @RestController
 @RequestMapping("/api/roster")
 class RosterController {
 
-    /** The new Roster after a successful upload. */
-    record Replaced(List<CompanySummary> companies) {}
+    /** The new Roster after a successful upload, and the run started over it ({@code null} when empty). */
+    record Replaced(List<CompanySummary> companies, RunSummary run) {}
 
     /** Why an upload was rejected: every failing row, with nothing written. */
     record Rejected(List<RosterCsv.RowError> errors) {}
 
     private final RosterService rosterService;
+    private final ScrapeRunService scrapeRunService;
 
-    RosterController(RosterService rosterService) {
+    RosterController(RosterService rosterService, ScrapeRunService scrapeRunService) {
         this.rosterService = rosterService;
+        this.scrapeRunService = scrapeRunService;
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -35,7 +42,12 @@ class RosterController {
         if (!parsed.isValid()) {
             return ResponseEntity.badRequest().body(new Rejected(parsed.errors()));
         }
-        return ResponseEntity.ok(
-                new Replaced(CompanySummary.ofAll(rosterService.replace(parsed.entries()))));
+        List<CompanySummary> roster = CompanySummary.ofAll(rosterService.replace(parsed.entries()));
+        RunSummary run =
+                scrapeRunService
+                        .start()
+                        .map(started -> RunSummary.of(started, scrapeRunService.outcomesOf(started)))
+                        .orElse(null);
+        return ResponseEntity.ok(new Replaced(roster, run));
     }
 }

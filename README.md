@@ -17,7 +17,9 @@ cd backend && ./mvnw spring-boot:run   # 2. Spring Boot on http://localhost:8080
 cd frontend && npm install && npm run dev   # 3. Vite on http://localhost:5173, proxying /api to 8080
 ```
 
-Open http://localhost:5173. The Roster screen shows an upload prompt until you upload a CSV; if the
+Open http://localhost:5173. The Roster screen shows an upload prompt until you upload a CSV. An
+accepted upload starts a Scrape Run at once; reload the page to watch each Company go from "Never
+scraped" through "In progress" to "Succeeded", then click a Company to see its Open postings. If the
 Roster does not load, check that the backend is running (its health check is at
 http://localhost:8080/api/health).
 
@@ -42,6 +44,32 @@ The API behind the screen is `POST /api/roster` (multipart field `file`) and `GE
 
 If another MySQL already listens on 3306, export `MYSQL_PORT=3307` (any free port) before running
 commands 1 and 2; Compose and the backend both read it.
+
+## Scrape Runs
+
+A Scrape Run walks the Roster one Company at a time on a single background thread and stores every
+Job Posting each Career Site lists. A successful upload starts one; "Scrape now" on the Roster
+screen starts another over the current Roster. Starting a run returns immediately; runs queue on
+the one thread, so two started back to back execute one after the other.
+
+For each Company the run reads Workday's jobs endpoint in pages of 20 ([ADR-0001](docs/adr/0001-workday-cxs-json-endpoint.md)),
+stopping when the offset reaches the total the first page reported, at the first short page, or at
+Workday's cap of 2,000 postings. A Career Site that reports 2,000 is flagged truncated on both
+screens: its count is a floor. Postings are identified within a Company by the requisition ID that
+ends the Workday path; a posting listed for the first time records this run as First Seen, and
+every listed posting records it as Last Seen. The Roster screen shows each Company's Open posting
+count, last scraped time and status; the Company screen at `/companies/:id` lists every Open
+posting as a card that opens the posting on Workday in a new tab.
+
+| Endpoint | What |
+| --- | --- |
+| `POST /api/runs` | Start a run over the current Roster. `202` with the run, or `409` when the Roster is empty. |
+| `GET /api/runs/{id}` | The run, with its start and end time, status, and each Company's outcome (status, postings seen, truncated). |
+| `GET /api/companies/{id}` | A Company's header plus its Open postings. |
+
+Runs are stored but not yet displayed: there is no run history screen. Live progress while a run
+is active, cancelling, the one-run-at-a-time rule, retry and pacing, Closed postings, and Today's
+Postings are tracked as separate issues.
 
 ## Layout
 
@@ -71,7 +99,9 @@ rebuild through environment variables (or an external `application.yml`):
 ## Tests
 
 Backend integration tests boot the full application against a Testcontainers MySQL and a WireMock
-stub of Workday, with request pacing set to zero and the clock pinned. Docker must be running.
+stub of Workday, with request pacing set to zero and the clock pinned. Docker must be running. The
+stub's canned responses under `backend/src/test/resources/wiremock/__files/workday/` were recorded
+from a real Career Site; its README says when and how.
 
 ```sh
 cd backend && ./mvnw test

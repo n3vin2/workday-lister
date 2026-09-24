@@ -1,5 +1,6 @@
 package io.github.n3vin2.workdaylister.roster;
 
+import io.github.n3vin2.workdaylister.config.WorkdayClientProperties;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import java.net.URI;
@@ -87,5 +88,14 @@ public record CareerSite(
             throw new InvalidUrlException(SITE_NAME_TOO_LONG);
         }
         return new CareerSite(host.group(1), host.group(2), site);
+    }
+
+    /**
+     * The public page of one Job Posting on this Career Site, as Workday's detail endpoint reports
+     * it: the Career Site's own host and site name followed by the posting's external path.
+     */
+    public String postingUrl(String externalPath) {
+        return "https://" + tenant + "." + pod + "." + WorkdayClientProperties.PUBLIC_HOST_SUFFIX
+                + "/" + site + externalPath;
     }
 }

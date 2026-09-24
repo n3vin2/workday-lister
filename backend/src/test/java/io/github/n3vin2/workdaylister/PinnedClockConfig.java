@@ -1,8 +1,8 @@
 package io.github.n3vin2.workdaylister;
 
+import io.github.n3vin2.workdaylister.config.ScraperProperties;
 import java.time.Clock;
 import java.time.Instant;
-import io.github.n3vin2.workdaylister.config.ScraperProperties;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;

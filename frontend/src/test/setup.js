@@ -4,6 +4,10 @@ import { cleanup } from '@testing-library/react'
 import { encodeMultipart } from './multipart.js'
 import { server } from './server.js'
 
+// Times are shown in the browser's timezone; pin it so the tests' expected strings hold anywhere.
+// Node re-reads TZ when process.env.TZ is assigned.
+process.env.TZ = 'America/Regina'
+
 // The app talks to the backend with relative URLs and browser FormData, both of which Vite and a
 // real browser handle but Node's fetch does not:
 // - Node's fetch rejects relative URLs; resolve them against jsdom's origin so MSW intercepts them.

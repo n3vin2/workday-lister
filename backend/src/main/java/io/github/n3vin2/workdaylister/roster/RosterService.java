@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,5 +51,11 @@ public class RosterService {
     @Transactional(readOnly = true)
     public List<Company> companies() {
         return companies.findAllByOrderByNameAsc();
+    }
+
+    /** One Company of the Roster, or empty when no Company has that id. */
+    @Transactional(readOnly = true)
+    public Optional<Company> find(long id) {
+        return companies.findById(id);
     }
 }
