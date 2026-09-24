@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Open and Closed postings: what a Scrape Run does to a Company's stored postings once it has read
- * the whole Career Site, and how {@code GET /api/companies/{id}} (with and without
+ * everything its Career Site lists, and how {@code GET /api/companies/{id}} (with and without
  * {@code includeClosed=true}) and {@code GET /api/companies} report them.
  */
 class PostingStateTest extends IntegrationHarness {
@@ -30,13 +30,13 @@ class PostingStateTest extends IntegrationHarness {
     private static final String CLERK = listing("Clerk", "/job/Regina-SK/Clerk_R3", "Regina, SK");
 
     @Test
-    void aSuccessfulPassClosesThePostingsTheCareerSiteNoLongerListsAndOnlyOpenOnesAreCounted() {
+    void aRunClosesThePostingsTheCareerSiteNoLongerListsAndCountsOnlyOpenOnes() {
         stubJobs(ACME_JOBS, 0, postings(ACCOUNTANT, ZEBRA_KEEPER));
         uploadAndAwaitRun(ACME_ONLY);
         long acmeId = companies().get(0).path("id").asLong();
         stubJobs(ACME_JOBS, 0, postings(ZEBRA_KEEPER, CLERK));
 
-        startRunAndAwait();
+        startAndAwaitRun();
 
         JsonNode company = company(acmeId);
         assertThat(texts(company.path("postings"), "requisitionId")).containsExactly("R3", "R2");
@@ -51,9 +51,9 @@ class PostingStateTest extends IntegrationHarness {
         long firstRun = uploadAndAwaitRun(ACME_ONLY);
         long acmeId = companies().get(0).path("id").asLong();
         stubJobs(ACME_JOBS, 0, postings(ZEBRA_KEEPER));
-        long secondRun = startRunAndAwait();
+        long secondRun = startAndAwaitRun();
 
-        JsonNode postings = openAndClosedPostingsOf(acmeId);
+        JsonNode postings = company(acmeId, true).path("postings");
 
         assertThat(texts(postings, "requisitionId")).containsExactly("R1", "R2");
         assertThat(texts(postings, "state")).containsExactly("CLOSED", "OPEN");
@@ -73,10 +73,10 @@ class PostingStateTest extends IntegrationHarness {
         long firstRun = uploadAndAwaitRun(ACME_ONLY);
         long acmeId = companies().get(0).path("id").asLong();
         stubJobs(ACME_JOBS, 0, postings(ZEBRA_KEEPER));
-        startRunAndAwait();
+        startAndAwaitRun();
         stubJobs(ACME_JOBS, 0, postings(ACCOUNTANT, ZEBRA_KEEPER));
 
-        long thirdRun = startRunAndAwait();
+        long thirdRun = startAndAwaitRun();
 
         JsonNode company = company(acmeId);
         JsonNode postings = company.path("postings");
@@ -88,13 +88,13 @@ class PostingStateTest extends IntegrationHarness {
     }
 
     @Test
-    void aPassThatFailsToReadTheCareerSiteChangesNoPostingStates() {
+    void aRunThatCannotReadTheCareerSiteChangesNoPostingStates() {
         stubJobs(ACME_JOBS, 0, postings(ACCOUNTANT, ZEBRA_KEEPER));
         long firstRun = uploadAndAwaitRun(ACME_ONLY);
         long acmeId = companies().get(0).path("id").asLong();
         workday.stubFor(post(urlEqualTo(ACME_JOBS)).willReturn(serverError()));
 
-        startRunAndAwait();
+        startAndAwaitRun();
 
         JsonNode company = company(acmeId);
         JsonNode postings = company.path("postings");
@@ -102,15 +102,6 @@ class PostingStateTest extends IntegrationHarness {
         assertThat(texts(postings, "state")).containsOnly("OPEN");
         assertThat(longs(postings, "lastSeenRunId")).containsOnly(firstRun);
         assertThat(company.path("openCount").asInt()).isEqualTo(2);
-        assertThat(openAndClosedPostingsOf(acmeId)).hasSize(2);
-    }
-
-    /**
-     * {@code GET /api/companies/{id}?includeClosed=true}: the Company's postings, Open and Closed.
-     */
-    private JsonNode openAndClosedPostingsOf(long companyId) {
-        return api.getForObject(
-                        "/api/companies/" + companyId + "?includeClosed=true", JsonNode.class)
-                .path("postings");
+        assertThat(company(acmeId, true).path("postings")).hasSize(2);
     }
 }

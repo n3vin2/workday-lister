@@ -139,11 +139,20 @@ test('a scraped Company with nothing Open says so', async () => {
   expect(await screen.findByText(/no open postings/i)).toBeInTheDocument()
 })
 
-test('Closed postings appear, marked Closed, only once "Include Closed postings" is ticked', async () => {
+test('Closed postings are hidden by default, behind an unticked "Include Closed postings"', async () => {
+  companyWithClosedIs(nvidia, [analyst])
+
+  renderCompany()
+
+  const list = await screen.findByRole('list', { name: /open postings/i })
+  expect(within(list).getAllByRole('listitem')).toHaveLength(2)
+  expect(screen.getByLabelText(/include closed postings/i)).not.toBeChecked()
+})
+
+test('Closed postings appear, marked Closed, once "Include Closed postings" is ticked', async () => {
   companyWithClosedIs(nvidia, [analyst])
   renderCompany()
-  const open = await screen.findByRole('list', { name: /open postings/i })
-  expect(within(open).getAllByRole('listitem')).toHaveLength(2)
+  await screen.findByRole('list', { name: /open postings/i })
 
   fireEvent.click(screen.getByLabelText(/include closed postings/i))
 
@@ -169,6 +178,51 @@ test('a Company with nothing Open still offers its Closed postings, and its Open
   ])
   expect(screen.getByText(/open postings: 0/i)).toBeInTheDocument()
   expect(screen.queryByText(/no open postings/i)).not.toBeInTheDocument()
+})
+
+test('while Closed postings are fetched, the cards give way to a loading notice', async () => {
+  let release
+  const held = new Promise((resolve) => {
+    release = resolve
+  })
+  server.use(
+    http.get('/api/companies/2', async ({ request }) => {
+      if (new URL(request.url).searchParams.get('includeClosed') !== 'true') {
+        return HttpResponse.json(nvidia)
+      }
+      await held
+      return HttpResponse.json({ ...nvidia, postings: [...nvidia.postings, analyst] })
+    }),
+  )
+  renderCompany()
+  await screen.findByRole('list', { name: /open postings/i })
+
+  fireEvent.click(screen.getByLabelText(/include closed postings/i))
+
+  expect(await screen.findByText(/loading postings/i)).toBeInTheDocument()
+  expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'NVIDIA' })).toBeInTheDocument()
+  release()
+  const all = await screen.findByRole('list', { name: /open and closed postings/i })
+  expect(within(all).getAllByRole('listitem')).toHaveLength(3)
+})
+
+test('a Company removed from the Roster while its screen is open says so on the next fetch', async () => {
+  server.use(
+    http.get('/api/companies/2', ({ request }) =>
+      new URL(request.url).searchParams.get('includeClosed') === 'true'
+        ? HttpResponse.json({}, { status: 404 })
+        : HttpResponse.json(nvidia),
+    ),
+  )
+  renderCompany()
+  await screen.findByRole('list', { name: /open postings/i })
+
+  fireEvent.click(screen.getByLabelText(/include closed postings/i))
+
+  expect(await screen.findByText(/not in the roster/i)).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'NVIDIA' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('list')).not.toBeInTheDocument()
 })
 
 test('a Company with no postings at all says so once Closed ones are included', async () => {

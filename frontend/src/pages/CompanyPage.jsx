@@ -27,6 +27,8 @@ export default function CompanyPage() {
         if (cancelled) return
         if (result.ok) {
           setCompany(result.company)
+          setNotFound(false)
+          setLoadFailed(false)
         } else {
           setNotFound(true)
         }
@@ -47,14 +49,14 @@ export default function CompanyPage() {
       <Link to="/" className="text-sm text-blue-700 hover:underline">
         ← Roster
       </Link>
-      {company === null && !notFound && !loadFailed && <Notice>Loading the Company…</Notice>}
+      {loading && company === null && <Notice>Loading the Company…</Notice>}
       {notFound && <Notice>This Company is not in the Roster.</Notice>}
       {loadFailed && (
         <p className="mt-6 rounded bg-red-50 px-3 py-2 text-red-800">
           Could not load this Company. Is the Spring server running on port 8080?
         </p>
       )}
-      {company !== null && (
+      {company !== null && !notFound && !loadFailed && (
         <>
           <CompanyHeader company={company} />
           <Postings

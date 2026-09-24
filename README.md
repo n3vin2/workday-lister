@@ -69,11 +69,13 @@ every listed posting records it as Last Seen. The Roster screen shows each Compa
 count, last scraped time and status; the Company screen at `/companies/:id` lists every Open
 posting as a card that opens the posting on Workday in a new tab.
 
-Once a Career Site has been read in full, every posting it listed is Open and every stored posting
-it no longer listed is Closed: kept with everything it had when last seen, hidden from the Company
-screen until "Include Closed postings" is ticked (where it carries a Closed marker), and left out
-of the Roster's Open count. A Closed posting the Career Site lists again is Open again and keeps
-its First Seen. A pass that fails partway through reading a Career Site changes no posting's state.
+Once everything a Career Site lists has been read, every posting it listed is Open and every
+stored posting it no longer listed is Closed: kept with everything it had when last seen, hidden
+from the Company screen until "Include Closed postings" is ticked (where it carries a Closed
+marker), and left out of the Roster's Open count. A Closed posting the Career Site lists again is
+Open again and keeps its First Seen. A Company whose Career Site could not be read keeps every
+posting as it was. For a truncated Career Site, postings beyond Workday's 2,000 cap are not
+listed and so are Closed too, until they come back within it; its Open count is what Workday lists.
 
 Requests to Workday are paced: consecutive requests are separated by `scraper.pacing-interval`
 (250 ms by default), because Workday rate-limits by source IP across every Career Site. A request

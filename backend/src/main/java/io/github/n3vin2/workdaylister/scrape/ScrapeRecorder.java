@@ -90,14 +90,18 @@ class ScrapeRecorder {
     }
 
     /**
-     * Stores what a Career Site listed, once the whole of it has been read: unseen postings are
-     * inserted with First Seen set to this run, every listed posting has Last Seen set to it and is
-     * Open (again, if it had been Closed), and every stored posting the Career Site no longer lists
-     * is Closed, keeping its data. A posting Workday lists twice across pages (its paging shifts as
-     * postings appear) counts once. Then the Company and its outcome are marked succeeded: the
-     * outcome with the postings this run saw, the Company with how many of its postings are Open.
+     * Stores what a Career Site listed, once the run has read everything Workday lists for it:
+     * unseen postings are inserted with First Seen set to this run, every listed posting has Last
+     * Seen set to it and is Open (again, if it had been Closed), and every stored posting the
+     * Career Site no longer lists is Closed, keeping its data. A posting Workday lists twice across
+     * pages (its paging shifts as postings appear) counts once. Then the Company and its outcome
+     * are marked succeeded: the outcome with the postings this run saw, the Company with how many
+     * of its postings are Open.
      *
-     * <p>A pass that fails partway never reaches this step, so it closes nothing.
+     * <p>A truncated Career Site lists only its first 2,000 postings (ADR-0001), so a stored
+     * posting beyond the cap is Closed too, and reopens if it comes back within it: the Open count
+     * is then what Workday lists, a floor. A run that stops before reading everything Workday
+     * lists, because a request failed, must not reach this step, so that it closes nothing.
      */
     @Transactional
     public void record(long outcomeId, CareerSitePostings listed) {

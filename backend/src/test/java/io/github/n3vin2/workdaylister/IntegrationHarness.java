@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -208,7 +209,7 @@ public abstract class IntegrationHarness {
     }
 
     /** "Scrape now" over the current Roster; waits for the run to finish and returns its id. */
-    protected long startRunAndAwait() {
+    protected long startAndAwaitRun() {
         ResponseEntity<JsonNode> started = startRun();
         assertThat(started.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         long runId = started.getBody().path("id").asLong();
@@ -259,7 +260,16 @@ public abstract class IntegrationHarness {
 
     /** {@code GET /api/companies/{id}}: a Company as the Company screen shows it by default. */
     protected JsonNode company(long companyId) {
-        return api.getForObject("/api/companies/" + companyId, JsonNode.class);
+        return company(companyId, false);
+    }
+
+    /**
+     * {@code GET /api/companies/{id}?includeClosed=...}: a Company with its Open postings, and its
+     * Closed ones too when asked.
+     */
+    protected JsonNode company(long companyId, boolean includeClosed) {
+        return api.getForObject(
+                "/api/companies/" + companyId + "?includeClosed=" + includeClosed, JsonNode.class);
     }
 
     /** Stubs one page of a Career Site's jobs endpoint, matched on the requested offset. */
@@ -307,28 +317,24 @@ public abstract class IntegrationHarness {
         return page(total, postings);
     }
 
+    /** One field of every element of a JSON array, as text; a missing field reads as empty. */
     protected static List<String> texts(JsonNode array, String field) {
-        List<String> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asText()));
-        return values;
+        return values(array, field, JsonNode::asText);
     }
 
+    /** One field of every element of a JSON array, as a long. */
     protected static List<Long> longs(JsonNode array, String field) {
-        List<Long> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asLong()));
-        return values;
+        return values(array, field, JsonNode::asLong);
     }
 
+    /** One field of every element of a JSON array, as an int. */
     protected static List<Integer> ints(JsonNode array, String field) {
-        List<Integer> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asInt()));
-        return values;
+        return values(array, field, JsonNode::asInt);
     }
 
+    /** One field of every element of a JSON array, as a boolean. */
     protected static List<Boolean> booleans(JsonNode array, String field) {
-        List<Boolean> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asBoolean()));
-        return values;
+        return values(array, field, JsonNode::asBoolean);
     }
 
     /**
@@ -346,5 +352,11 @@ public abstract class IntegrationHarness {
             gaps.add(Duration.between(received.get(i - 1), received.get(i)));
         }
         return gaps;
+    }
+
+    private static <T> List<T> values(JsonNode array, String field, Function<JsonNode, T> read) {
+        List<T> values = new ArrayList<>();
+        array.forEach(node -> values.add(read.apply(node.path(field))));
+        return values;
     }
 }

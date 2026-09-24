@@ -208,10 +208,7 @@ class ScrapeRunTest extends IntegrationHarness {
         long secondRun = started.getBody().path("id").asLong();
         awaitRunFinished(secondRun);
         // The Accountant is Closed after the second run; it is asked for so its Last Seen shows.
-        JsonNode postings =
-                api.getForObject(
-                                "/api/companies/" + acmeId + "?includeClosed=true", JsonNode.class)
-                        .path("postings");
+        JsonNode postings = company(acmeId, true).path("postings");
         assertThat(texts(postings, "title"))
                 .containsExactly("Accountant", "Clerk", "Senior Zebra Keeper");
         assertThat(texts(postings, "requisitionId")).containsExactly("R1", "R3", "R2");
