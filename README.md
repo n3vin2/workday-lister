@@ -18,10 +18,10 @@ cd frontend && npm install && npm run dev   # 3. Vite on http://localhost:5173, 
 ```
 
 Open http://localhost:5173. The Roster screen shows an upload prompt until you upload a CSV. An
-accepted upload starts a Scrape Run at once; reload the page to watch each Company go from "Never
-scraped" through "In progress" to "Succeeded", then click a Company to see its Open postings. If the
-Roster does not load, check that the backend is running (its health check is at
-http://localhost:8080/api/health).
+accepted upload starts a Scrape Run at once, and the screen follows it live: how many Companies are
+done, the time elapsed, and each Company going from "Queued" through "In progress" to "Succeeded".
+When the run ends, click a Company to see its Open postings. If the Roster does not load, check
+that the backend is running (its health check is at http://localhost:8080/api/health).
 
 ## Roster CSV
 
@@ -49,8 +49,16 @@ commands 1 and 2; Compose and the backend both read it.
 
 A Scrape Run walks the Roster one Company at a time on a single background thread and stores every
 Job Posting each Career Site lists. A successful upload starts one; "Scrape now" on the Roster
-screen starts another over the current Roster. Starting a run returns immediately; runs queue on
-the one thread, so two started back to back execute one after the other.
+screen starts another over the current Roster. Starting a run returns immediately.
+
+Only one run is active at a time. While one is, "Scrape now" and uploads are refused with a
+`409` and the screen says a run is in progress, so the Roster never changes under a run. The
+Roster screen polls the active run every 2 seconds, refreshing the Company list on each poll, and
+stops polling as soon as no run is active. Cancel asks the run to stop; it checks between Companies
+and between pages, so it stops within one Workday request. Companies it finished keep their
+results, the Company it was reading is marked cancelled with none of that Career Site's listing
+applied, the Companies it had not reached are left as they were, and the run is recorded as
+cancelled.
 
 For each Company the run reads Workday's jobs endpoint in pages of 20 ([ADR-0001](docs/adr/0001-workday-cxs-json-endpoint.md)),
 stopping when the offset reaches the total the first page reported, at the first short page, or at
@@ -63,13 +71,15 @@ posting as a card that opens the posting on Workday in a new tab.
 
 | Endpoint | What |
 | --- | --- |
-| `POST /api/runs` | Start a run over the current Roster. `202` with the run, or `409` when the Roster is empty. |
-| `GET /api/runs/{id}` | The run, with its start and end time, status, and each Company's outcome (status, postings seen, truncated). |
+| `POST /api/runs` | Start a run over the current Roster. `202` with the run, or `409` with a `reason` when a run is active or the Roster is empty. |
+| `GET /api/runs/current` | The active run's progress: Companies `done` of `total`, `startedAt`, and each Company's outcome status. `204` when no run is active. |
+| `POST /api/runs/current/cancel` | Ask the active run to stop. `202` with the run, or `204` when no run is active. |
+| `GET /api/runs/{id}` | The run, with its start and end time, status (`RUNNING`, `SUCCEEDED`, `CANCELLED`), progress, and each Company's outcome (status, postings seen, truncated). |
 | `GET /api/companies/{id}` | A Company's header plus its Open postings. |
 
-Runs are stored but not yet displayed: there is no run history screen. Live progress while a run
-is active, cancelling, the one-run-at-a-time rule, retry and pacing, Closed postings, and Today's
-Postings are tracked as separate issues.
+`POST /api/roster` also answers `409` with a `reason` while a run is active. Finished runs are
+stored but not displayed: there is no run history screen. Retry and pacing, Closed postings, and
+Today's Postings are tracked as separate issues.
 
 ## Layout
 

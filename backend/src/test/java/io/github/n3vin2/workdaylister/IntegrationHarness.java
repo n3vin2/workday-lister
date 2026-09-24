@@ -24,6 +24,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -42,9 +43,9 @@ import org.testcontainers.containers.MySQLContainer;
  * across test classes so Spring's context cache stays valid.
  *
  * <p>Every test starts with an empty Roster and an idle scraper. Because a successful upload starts
- * a Scrape Run on a background thread, the harness remembers the last run it started and waits for
- * it to finish before the next test resets the stub and empties the Roster. Until a test says
- * otherwise, every Career Site on the stub is empty (a page with no postings), so a run always
+ * a Scrape Run on a background thread, the harness waits for {@code GET /api/runs/current} to
+ * report no active run before the next test resets the stub and empties the Roster. Until a test
+ * says otherwise, every Career Site on the stub is empty (a page with no postings), so a run always
  * finishes.
  *
  * <p>To observe a run in the middle of a Company, a test gives that Company's stub the
@@ -115,8 +116,6 @@ public abstract class IntegrationHarness {
                             .http2PlainDisabled(true)
                             .extensions(new HoldResponse()));
 
-    private static Long lastStartedRun;
-
     static {
         MYSQL.start();
         workday.start();
@@ -134,10 +133,7 @@ public abstract class IntegrationHarness {
     @BeforeEach
     void startFromAnEmptyRosterAndAnIdleScraper() {
         releaseHeldResponses();
-        if (lastStartedRun != null) {
-            awaitRunFinished(lastStartedRun);
-            lastStartedRun = null;
-        }
+        awaitIdle();
         workday.resetAll();
         workday.stubFor(
                 post(urlMatching("/wday/cxs/.*/jobs"))
@@ -146,10 +142,7 @@ public abstract class IntegrationHarness {
         uploadRoster("company,url\n");
     }
 
-    /**
-     * Uploads the given text as a {@code roster.csv} multipart file to {@code POST /api/roster} and
-     * remembers the Scrape Run it started, if any.
-     */
+    /** Uploads the text as a {@code roster.csv} multipart file to {@code POST /api/roster}. */
     protected ResponseEntity<JsonNode> uploadRoster(String csv) {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add(
@@ -162,17 +155,22 @@ public abstract class IntegrationHarness {
                 });
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-        ResponseEntity<JsonNode> response =
-                api.postForEntity("/api/roster", new HttpEntity<>(body, headers), JsonNode.class);
-        rememberRun(response);
-        return response;
+        return api.postForEntity("/api/roster", new HttpEntity<>(body, headers), JsonNode.class);
     }
 
-    /** {@code POST /api/runs}: starts a Scrape Run over the current Roster and remembers it. */
+    /** {@code POST /api/runs}: starts a Scrape Run over the current Roster. */
     protected ResponseEntity<JsonNode> startRun() {
-        ResponseEntity<JsonNode> response = api.postForEntity("/api/runs", null, JsonNode.class);
-        rememberRun(response);
-        return response;
+        return api.postForEntity("/api/runs", null, JsonNode.class);
+    }
+
+    /** {@code GET /api/runs/current}: the active run's progress, or 204 when none is active. */
+    protected ResponseEntity<JsonNode> currentRun() {
+        return api.getForEntity("/api/runs/current", JsonNode.class);
+    }
+
+    /** {@code POST /api/runs/current/cancel}: asks the active run to stop. */
+    protected ResponseEntity<JsonNode> cancelRun() {
+        return api.postForEntity("/api/runs/current/cancel", null, JsonNode.class);
     }
 
     /**
@@ -197,6 +195,15 @@ public abstract class IntegrationHarness {
                                         .isNotEqualTo("RUNNING"));
     }
 
+    /** Polls {@code GET /api/runs/current} until no run is active. */
+    protected void awaitIdle() {
+        await().atMost(RUN_TIMEOUT)
+                .untilAsserted(
+                        () ->
+                                assertThat(currentRun().getStatusCode())
+                                        .isEqualTo(HttpStatus.NO_CONTENT));
+    }
+
     /** {@code GET /api/runs/{id}}. */
     protected JsonNode run(long runId) {
         return api.getForObject("/api/runs/" + runId, JsonNode.class);
@@ -205,16 +212,5 @@ public abstract class IntegrationHarness {
     /** {@code GET /api/companies}: the Roster as the Roster screen lists it. */
     protected JsonNode companies() {
         return api.getForObject("/api/companies", JsonNode.class);
-    }
-
-    private static void rememberRun(ResponseEntity<JsonNode> response) {
-        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
-            return;
-        }
-        JsonNode body = response.getBody();
-        JsonNode run = body.has("run") ? body.path("run") : body;
-        if (run.hasNonNull("id")) {
-            lastStartedRun = run.path("id").asLong();
-        }
     }
 }

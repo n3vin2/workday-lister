@@ -18,8 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Writes a Scrape Run's progress to the database, one transaction per step, so a run in progress
  * is visible to readers between steps and no transaction is held open while Workday is being read.
- * Every step reloads what it touches by id: a Company that leaves the Roster mid-run (a new upload)
- * takes its outcome with it, and the step then does nothing rather than resurrect it.
+ * Every step reloads what it touches by id; nothing detached is saved back. The Roster cannot
+ * change under a run, because an upload is refused while one is active, so what a step reloads is
+ * always there.
  */
 @Service
 class ScrapeRecorder {
@@ -66,19 +67,13 @@ class ScrapeRecorder {
                 .toList();
     }
 
-    /**
-     * Marks an outcome and its Company in progress and returns the Career Site to read; empty when
-     * the Company has left the Roster since the run was opened.
-     */
+    /** Marks an outcome and its Company in progress and returns the Career Site to read. */
     @Transactional
-    public Optional<CareerSite> begin(long outcomeId) {
-        return outcomes.findById(outcomeId)
-                .map(
-                        outcome -> {
-                            outcome.begin(Instant.now(clock));
-                            outcome.getCompany().beginScrape();
-                            return outcome.getCompany().getCareerSite();
-                        });
+    public CareerSite begin(long outcomeId) {
+        CompanyOutcome outcome = outcomes.findById(outcomeId).orElseThrow();
+        outcome.begin(Instant.now(clock));
+        outcome.getCompany().beginScrape();
+        return outcome.getCompany().getCareerSite();
     }
 
     /**
@@ -90,39 +85,60 @@ class ScrapeRecorder {
      */
     @Transactional
     public void record(long outcomeId, CareerSitePostings listed) {
-        outcomes.findById(outcomeId)
-                .ifPresent(
-                        outcome -> {
-                            Company company = outcome.getCompany();
-                            ScrapeRun run = outcome.getRun();
-                            Map<String, JobPosting> known = new HashMap<>();
-                            for (JobPosting posting :
-                                    postings.findAllByCompanyOrderByTitleAscRequisitionIdAsc(
-                                            company)) {
-                                known.put(posting.getRequisitionId(), posting);
-                            }
-                            Set<String> seen = new HashSet<>();
-                            for (WorkdayPosting listing : listed.postings()) {
-                                if (!seen.add(listing.requisitionId())) {
-                                    continue;
-                                }
-                                JobPosting posting = known.get(listing.requisitionId());
-                                if (posting == null) {
-                                    postings.save(new JobPosting(company, listing, run));
-                                } else {
-                                    posting.seen(listing, run);
-                                }
-                            }
-                            Instant now = Instant.now(clock);
-                            int openCount = (int) postings.countByCompany(company);
-                            company.finishScrape(now, openCount, listed.truncated());
-                            outcome.succeed(now, seen.size(), listed.truncated());
-                        });
+        CompanyOutcome outcome = outcomes.findById(outcomeId).orElseThrow();
+        Company company = outcome.getCompany();
+        ScrapeRun run = outcome.getRun();
+        Map<String, JobPosting> known = new HashMap<>();
+        for (JobPosting posting :
+                postings.findAllByCompanyOrderByTitleAscRequisitionIdAsc(company)) {
+            known.put(posting.getRequisitionId(), posting);
+        }
+        Set<String> seen = new HashSet<>();
+        for (WorkdayPosting listing : listed.postings()) {
+            if (!seen.add(listing.requisitionId())) {
+                continue;
+            }
+            JobPosting posting = known.get(listing.requisitionId());
+            if (posting == null) {
+                postings.save(new JobPosting(company, listing, run));
+            } else {
+                posting.seen(listing, run);
+            }
+        }
+        Instant now = Instant.now(clock);
+        int openCount = (int) postings.countByCompany(company);
+        company.finishScrape(now, openCount, listed.truncated());
+        outcome.succeed(now, seen.size(), listed.truncated());
+    }
+
+    /**
+     * The run was cancelled while reading this Company's Career Site: the outcome and the Company
+     * are marked cancelled and nothing the Career Site listed is applied, so the Company keeps the
+     * previous run's postings and count.
+     */
+    @Transactional
+    public void cancelCompany(long outcomeId) {
+        CompanyOutcome outcome = outcomes.findById(outcomeId).orElseThrow();
+        outcome.cancel(Instant.now(clock));
+        outcome.getCompany().cancelScrape();
     }
 
     /** Every Company has been visited. */
     @Transactional
     public void close(long runId) {
-        runs.findById(runId).ifPresent(run -> run.finish(Instant.now(clock)));
+        runs.findById(runId).orElseThrow().finish(Instant.now(clock));
+    }
+
+    /**
+     * The run stopped at the user's request: the Companies it had not reached are marked cancelled
+     * (their own status is untouched, as nothing happened to them) and so is the run. Companies it
+     * finished keep their results.
+     */
+    @Transactional
+    public void cancel(long runId) {
+        Instant now = Instant.now(clock);
+        outcomes.findAllByRunIdAndStatus(runId, OutcomeStatus.QUEUED)
+                .forEach(outcome -> outcome.cancel(now));
+        runs.findById(runId).orElseThrow().cancel(now);
     }
 }

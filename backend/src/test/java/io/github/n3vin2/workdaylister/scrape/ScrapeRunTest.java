@@ -305,39 +305,6 @@ class ScrapeRunTest extends IntegrationHarness {
     }
 
     @Test
-    void aCompanyRemovedFromTheRosterMidRunIsSkippedAndTheRunStillFinishes() {
-        workday.stubFor(
-                post(urlEqualTo(ACME_JOBS))
-                        .willReturn(okJson(jobsPage(1, 0, 1)).withTransformers(HOLD)));
-        holdResponses();
-        long firstRun = uploadRoster(TWO_COMPANIES).getBody().path("run").path("id").asLong();
-        await().untilAsserted(
-                () ->
-                        assertThat(texts(companies(), "status"))
-                                .containsExactly("IN_PROGRESS", "NEVER_SCRAPED"));
-
-        long secondRun =
-                uploadRoster(
-                                """
-                                company,url
-                                Gamma,https://gamma.wd1.myworkdayjobs.com/Careers
-                                """)
-                        .getBody()
-                        .path("run")
-                        .path("id")
-                        .asLong();
-        releaseHeldResponses();
-
-        awaitRunFinished(firstRun);
-        assertThat(run(firstRun).path("status").asText()).isEqualTo("SUCCEEDED");
-        assertThat(run(firstRun).path("outcomes")).isEmpty();
-        awaitRunFinished(secondRun);
-        JsonNode roster = companies();
-        assertThat(texts(roster, "name")).containsExactly("Gamma");
-        assertThat(texts(roster, "status")).containsExactly("SUCCEEDED");
-    }
-
-    @Test
     void aCompanyThatIsNotInTheRosterIsNotFound() {
         ResponseEntity<JsonNode> response =
                 api.getForEntity("/api/companies/999999", JsonNode.class);

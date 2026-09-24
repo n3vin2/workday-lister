@@ -86,6 +86,14 @@ public class Company {
         this.truncated = truncated;
     }
 
+    /**
+     * A Scrape Run was cancelled while reading this Company's Career Site: nothing it listed was
+     * applied, so the postings, count and last scraped time are still the previous run's.
+     */
+    public void cancelScrape() {
+        this.status = CompanyStatus.CANCELLED;
+    }
+
     public Long getId() {
         return id;
     }

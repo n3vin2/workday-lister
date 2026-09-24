@@ -10,7 +10,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code POST /api/runs}: "Scrape now", a Scrape Run over the current Roster. {@code GET
- * /api/runs/{id}}: a run and its per-Company outcomes.
+ * /api/runs/current}: the active run's progress, which the Roster screen polls. {@code POST
+ * /api/runs/current/cancel}: ask the active run to stop. {@code GET /api/runs/{id}}: a run and its
+ * per-Company outcomes.
  */
 @RestController
 @RequestMapping("/api/runs")
@@ -28,18 +30,40 @@ class ScrapeRunController {
     }
 
     /**
-     * Accepted (202) with the run, which proceeds in the background; 409 when there is nothing to
-     * run over.
+     * Accepted (202) with the run, which proceeds in the background; 409 when a run is already
+     * active or there is nothing to run over.
      */
     @PostMapping
     ResponseEntity<?> start() {
+        try {
+            return scrapeRunService
+                    .start()
+                    .<ResponseEntity<?>>map(run -> ResponseEntity.accepted().body(summary(run)))
+                    .orElseGet(() -> notStarted(EMPTY_ROSTER));
+        } catch (ScrapeRunService.RunActiveException e) {
+            return notStarted(e.getMessage());
+        }
+    }
+
+    /** The active run's progress, or 204 when no run is active. */
+    @GetMapping("/current")
+    ResponseEntity<RunSummary> current() {
         return scrapeRunService
-                .start()
-                .<ResponseEntity<?>>map(run -> ResponseEntity.accepted().body(summary(run)))
-                .orElseGet(
-                        () ->
-                                ResponseEntity.status(HttpStatus.CONFLICT)
-                                        .body(new NotStarted(EMPTY_ROSTER)));
+                .current()
+                .map(run -> ResponseEntity.ok(summary(run)))
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /**
+     * Asks the active run to stop: 202 with its progress, as it stops at its next check rather than
+     * at once; 204 when no run is active.
+     */
+    @PostMapping("/current/cancel")
+    ResponseEntity<RunSummary> cancel() {
+        return scrapeRunService
+                .cancel()
+                .map(run -> ResponseEntity.accepted().body(summary(run)))
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @GetMapping("/{id}")
@@ -52,5 +76,9 @@ class ScrapeRunController {
 
     private RunSummary summary(ScrapeRun run) {
         return RunSummary.of(run, scrapeRunService.outcomesOf(run));
+    }
+
+    private static ResponseEntity<NotStarted> notStarted(String reason) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new NotStarted(reason));
     }
 }

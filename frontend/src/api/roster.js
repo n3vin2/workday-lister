@@ -25,8 +25,8 @@ export async function getCompany(id) {
 /**
  * Uploads a CSV file as the new Roster, which starts a Scrape Run over it. Resolves to
  * {@code { ok: true, companies, run }} with the new Roster and the started run (null when the
- * Roster is empty), or {@code { ok: false, errors }} with one {@code { line, reason }} per rejected
- * row.
+ * Roster is empty); to {@code { ok: false, errors }} with one {@code { line, reason }} per rejected
+ * row; or to {@code { ok: false, reason }} when the upload was refused because a run is active.
  */
 export async function uploadRoster(file) {
   const body = new FormData()
@@ -35,6 +35,10 @@ export async function uploadRoster(file) {
   if (response.status === 400) {
     const { errors } = await response.json()
     return { ok: false, errors }
+  }
+  if (response.status === 409) {
+    const { reason } = await response.json()
+    return { ok: false, reason }
   }
   if (!response.ok) throw new Error(`Uploading the Roster failed with HTTP ${response.status}`)
   const { companies, run } = await response.json()

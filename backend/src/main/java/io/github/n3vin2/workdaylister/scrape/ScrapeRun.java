@@ -47,6 +47,12 @@ public class ScrapeRun {
         this.status = ScrapeRunStatus.SUCCEEDED;
     }
 
+    /** Stopped at the user's request before every Company was visited. */
+    void cancel(Instant at) {
+        this.finishedAt = at;
+        this.status = ScrapeRunStatus.CANCELLED;
+    }
+
     public Long getId() {
         return id;
     }

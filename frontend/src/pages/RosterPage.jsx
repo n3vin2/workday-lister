@@ -1,28 +1,35 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { listCompanies, uploadRoster } from '../api/roster.js'
-import { startRun } from '../api/runs.js'
+import { cancelRun, getCurrentRun, startRun } from '../api/runs.js'
 import Notice from '../components/Notice.jsx'
-import { formatDateTime, formatStatus } from '../format.js'
+import { formatDateTime, formatElapsed, formatStatus } from '../format.js'
 
 const TRUNCATED_TITLE =
   'Truncated: Workday lists at most 2,000 postings per Career Site, so this count is a floor.'
 
+/** How often the screen asks after the active run, and only then. */
+const POLL_INTERVAL_MS = 2000
+
 /**
  * The Roster screen: upload a CSV of Companies, start a Scrape Run over it, and see what the latest
- * run left for each Company. Live progress while a run is active arrives in a later ticket; until
- * then, reload to see a run's results.
+ * run left for each Company. While a run is active the upload form and Scrape now give way to the
+ * run's progress and a Cancel button, and each Company's row shows where the run is with it.
  */
 export default function RosterPage() {
   const [companies, setCompanies] = useState(null)
+  const [run, setRun] = useState(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [rejectedRows, setRejectedRows] = useState([])
+  const [refusal, setRefusal] = useState(null)
 
   useEffect(() => {
     let cancelled = false
-    listCompanies()
-      .then((roster) => {
-        if (!cancelled) setCompanies(roster)
+    Promise.all([listCompanies(), getCurrentRun()])
+      .then(([roster, current]) => {
+        if (cancelled) return
+        setCompanies(roster)
+        setRun(current)
       })
       .catch(() => {
         if (!cancelled) setLoadFailed(true)
@@ -32,34 +39,80 @@ export default function RosterPage() {
     }
   }, [])
 
-  function reloadRoster() {
-    listCompanies()
-      .then((roster) => {
-        setCompanies(roster)
-        setLoadFailed(false)
-      })
+  // While a run is active, poll it and the Roster; the interval is cleared as soon as a poll finds
+  // no run active, so an idle tab does not keep asking.
+  const polling = run !== null
+  useEffect(() => {
+    if (!polling) return undefined
+    let cancelled = false
+    const timer = setInterval(() => {
+      Promise.all([listCompanies(), getCurrentRun()])
+        .then(([roster, current]) => {
+          if (cancelled) return
+          setCompanies(roster)
+          setRun(current)
+          setLoadFailed(false)
+          // A "run in progress" refusal is no longer news once the run has ended.
+          if (current === null) setRefusal(null)
+        })
+        .catch(() => {
+          if (!cancelled) setLoadFailed(true)
+        })
+    }, POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [polling])
+
+  /** A refused start or upload means a run this screen did not know about is active: show it. */
+  function showRefusal(message) {
+    setRefusal(message)
+    getCurrentRun()
+      .then(setRun)
       .catch(() => setLoadFailed(true))
+  }
+
+  function handleUploaded(result) {
+    if (result.ok) {
+      setCompanies(result.companies)
+      setRun(result.run)
+      setLoadFailed(false)
+      setRejectedRows([])
+      setRefusal(null)
+    } else if (result.errors) {
+      setRejectedRows(result.errors)
+    } else {
+      showRefusal(`Upload refused: ${result.reason}`)
+    }
+  }
+
+  function handleStarted(started) {
+    setRun(started)
+    setRefusal(null)
   }
 
   return (
     <main className="mx-auto max-w-4xl p-6">
       <h1 className="text-2xl font-semibold">Workday Lister</h1>
       <p className="mt-2 text-sm text-gray-600">Your Roster of Companies and their Today's Postings.</p>
-      <UploadForm
-        onUploaded={(result) => {
-          if (result.ok) {
-            setCompanies(result.companies)
-            setLoadFailed(false)
-            setRejectedRows([])
-          } else {
-            setRejectedRows(result.errors)
-          }
-        }}
-      />
-      <ScrapeNowButton
-        disabled={companies === null || companies.length === 0}
-        onStarted={reloadRoster}
-      />
+      {refusal && (
+        <p role="alert" className="mt-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800">
+          {refusal}
+        </p>
+      )}
+      {run !== null ? (
+        <RunProgress run={run} />
+      ) : (
+        <>
+          <UploadForm onUploaded={handleUploaded} />
+          <ScrapeNowButton
+            disabled={companies === null || companies.length === 0}
+            onStarted={handleStarted}
+            onRefused={(reason) => showRefusal(`Could not start a Scrape Run: ${reason}`)}
+          />
+        </>
+      )}
       {rejectedRows.length > 0 && <RejectedRows rows={rejectedRows} />}
       {loadFailed && (
         <p className="mt-6 rounded bg-red-50 px-3 py-2 text-red-800">
@@ -68,8 +121,61 @@ export default function RosterPage() {
       )}
       {companies === null && !loadFailed && <Notice>Loading the Roster…</Notice>}
       {companies !== null &&
-        (companies.length === 0 ? <EmptyRoster /> : <CompanyTable companies={companies} />)}
+        (companies.length === 0 ? (
+          <EmptyRoster />
+        ) : (
+          <CompanyTable companies={companies} run={run} />
+        ))}
     </main>
+  )
+}
+
+/**
+ * The active run: how many Companies it is done with, how long it has been going, and Cancel. The
+ * run stops at its next check between Companies or pages, so the button only asks; the next poll
+ * shows the run gone.
+ */
+function RunProgress({ run }) {
+  const [cancelling, setCancelling] = useState(false)
+  const [failure, setFailure] = useState(null)
+  const elapsed = formatElapsed(Date.now() - Date.parse(run.startedAt))
+
+  async function handleCancel() {
+    setCancelling(true)
+    setFailure(null)
+    try {
+      await cancelRun()
+    } catch (error) {
+      setFailure(error.message)
+      setCancelling(false)
+    }
+  }
+
+  return (
+    <section
+      aria-label="Scrape Run in progress"
+      className="mt-6 flex flex-wrap items-center gap-3 rounded border border-blue-200 bg-blue-50 p-4"
+    >
+      <div className="grow">
+        <h2 className="font-medium">Scrape Run in progress</h2>
+        <p className="mt-1 text-sm text-gray-700">
+          {run.done} of {run.total} Companies done · {elapsed} elapsed
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={handleCancel}
+        disabled={cancelling}
+        className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+      >
+        {cancelling ? 'Cancelling…' : 'Cancel'}
+      </button>
+      {failure && (
+        <p role="alert" className="basis-full text-sm text-red-800">
+          Could not cancel the Scrape Run: {failure}
+        </p>
+      )}
+    </section>
   )
 }
 
@@ -132,7 +238,7 @@ function UploadForm({ onUploaded }) {
   )
 }
 
-function ScrapeNowButton({ disabled, onStarted }) {
+function ScrapeNowButton({ disabled, onStarted, onRefused }) {
   const [starting, setStarting] = useState(false)
   const [failure, setFailure] = useState(null)
 
@@ -142,9 +248,9 @@ function ScrapeNowButton({ disabled, onStarted }) {
     try {
       const result = await startRun()
       if (result.ok) {
-        onStarted()
+        onStarted(result.run)
       } else {
-        setFailure(result.reason)
+        onRefused(result.reason)
       }
     } catch (error) {
       setFailure(error.message)
@@ -164,7 +270,7 @@ function ScrapeNowButton({ disabled, onStarted }) {
         {starting ? 'Starting…' : 'Scrape now'}
       </button>
       <span className="text-xs text-gray-500">
-        Reads every Career Site in the Roster again, one Company at a time. Reload to see results.
+        Reads every Career Site in the Roster again, one Company at a time.
       </span>
       {failure && (
         <p role="alert" className="basis-full text-sm text-red-800">
@@ -198,7 +304,16 @@ function EmptyRoster() {
   )
 }
 
-function CompanyTable({ companies }) {
+/**
+ * The Roster as a table. While a run is active, a Company's status is where the run is with it
+ * (queued, in progress, done); otherwise it is what the latest run left behind.
+ */
+function CompanyTable({ companies, run }) {
+  function statusOf(company) {
+    const outcome = run?.outcomes.find((candidate) => candidate.companyId === company.id)
+    return outcome ? outcome.status : company.status
+  }
+
   return (
     <table className="mt-6 w-full text-left text-sm">
       <thead>
@@ -226,7 +341,7 @@ function CompanyTable({ companies }) {
             <td className="py-2 pr-4 text-gray-600">
               {company.lastScrapedAt ? formatDateTime(company.lastScrapedAt) : '—'}
             </td>
-            <td className="py-2 text-gray-600">{formatStatus(company.status)}</td>
+            <td className="py-2 text-gray-600">{formatStatus(statusOf(company))}</td>
           </tr>
         ))}
       </tbody>

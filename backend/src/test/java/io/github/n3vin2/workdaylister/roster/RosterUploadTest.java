@@ -11,7 +11,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-/** Roster replacement through {@code POST /api/roster} and {@code GET /api/companies}. */
+/**
+ * Roster replacement through {@code POST /api/roster} and {@code GET /api/companies}. An upload
+ * starts a Scrape Run, and a second upload is refused while that run is active, so a test that
+ * uploads twice waits for the scraper to be idle in between.
+ */
 class RosterUploadTest extends IntegrationHarness {
 
     @Test
@@ -196,6 +200,7 @@ class RosterUploadTest extends IntegrationHarness {
                         .path("companies");
         long acmeId = first.get(0).path("id").asLong();
         long betaId = first.get(1).path("id").asLong();
+        awaitIdle();
 
         ResponseEntity<JsonNode> second =
                 uploadRoster(
@@ -219,6 +224,7 @@ class RosterUploadTest extends IntegrationHarness {
                 company,url
                 Acme,https://acme.wd1.myworkdayjobs.com/Careers
                 """);
+        awaitIdle();
 
         ResponseEntity<JsonNode> response = uploadRoster("company,url\n");
 
