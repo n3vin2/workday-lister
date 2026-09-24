@@ -14,6 +14,20 @@ package io.github.n3vin2.workdaylister.workday;
 public record WorkdayPosting(
         String title, String externalPath, String locationsText, String postedOn) {
 
+    /** Workday's en-US label for a posting that went live today, in the employer's timezone. */
+    public static final String POSTED_TODAY = "Posted Today";
+
+    /** Workday's en-US label for a posting that went live yesterday, in the employer's timezone. */
+    public static final String POSTED_YESTERDAY = "Posted Yesterday";
+
+    /**
+     * Whether Workday's label says this posting went live today or yesterday. Only such a posting
+     * can be today's in our timezone, so only its detail is worth a request (ADR-0002).
+     */
+    public boolean postedTodayOrYesterday() {
+        return POSTED_TODAY.equals(postedOn) || POSTED_YESTERDAY.equals(postedOn);
+    }
+
     /**
      * The requisition ID that identifies this posting within its Career Site: what follows the last
      * underscore of the external path.

@@ -1,5 +1,6 @@
 package io.github.n3vin2.workdaylister.roster;
 
+import io.github.n3vin2.workdaylister.scrape.JobPostingService;
 import io.github.n3vin2.workdaylister.scrape.RunSummary;
 import io.github.n3vin2.workdaylister.scrape.ScrapeRunService;
 import java.io.IOException;
@@ -24,8 +25,8 @@ import org.springframework.web.multipart.MultipartFile;
 class RosterController {
 
     /**
-     * The new Roster after a successful upload, and the run started over it ({@code null} when the
-     * Roster is empty).
+     * The new Roster after a successful upload, as the Roster screen lists it, and the run started
+     * over it ({@code null} when the Roster is empty).
      */
     record Replaced(List<CompanySummary> companies, RunSummary run) {}
 
@@ -37,10 +38,15 @@ class RosterController {
 
     private final RosterService rosterService;
     private final ScrapeRunService scrapeRunService;
+    private final JobPostingService jobPostingService;
 
-    RosterController(RosterService rosterService, ScrapeRunService scrapeRunService) {
+    RosterController(
+            RosterService rosterService,
+            ScrapeRunService scrapeRunService,
+            JobPostingService jobPostingService) {
         this.rosterService = rosterService;
         this.scrapeRunService = scrapeRunService;
+        this.jobPostingService = jobPostingService;
     }
 
     /**
@@ -69,6 +75,9 @@ class RosterController {
                     .body(new NotReplaced(e.getMessage()));
         }
         return ResponseEntity.ok(
-                new Replaced(CompanySummary.ofAll(rosterService.companies()), run));
+                new Replaced(
+                        CompanySummary.ofAll(
+                                rosterService.companies(), jobPostingService.todayCounts()),
+                        run));
     }
 }

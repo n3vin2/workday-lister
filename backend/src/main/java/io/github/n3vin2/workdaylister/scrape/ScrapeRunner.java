@@ -5,6 +5,7 @@ import io.github.n3vin2.workdaylister.workday.JobPage;
 import io.github.n3vin2.workdaylister.workday.WorkdayClient;
 import io.github.n3vin2.workdaylister.workday.WorkdayPosting;
 import jakarta.annotation.PreDestroy;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -22,10 +23,10 @@ import org.springframework.stereotype.Component;
  * one-run-at-a-time rule and the current-run endpoint; the database's RUNNING status is the record
  * of it, not the source.
  *
- * <p>Cancelling sets a flag the run checks between Companies and between pages. Companies already
- * finished keep their Job Postings and Company Outcome; the Company being read is cancelled with
- * nothing applied, the Companies not yet reached are cancelled untouched, and the run is recorded
- * as cancelled.
+ * <p>Cancelling sets a flag the run checks between Companies and between requests, a page or a
+ * posting's detail alike. Companies already finished keep their Job Postings and Company Outcome;
+ * the Company being read is cancelled with nothing applied, the Companies not yet reached are
+ * cancelled untouched, and the run is recorded as cancelled.
  *
  * <p>A Company whose Career Site cannot be read, once the Workday client has retried what it will,
  * is marked failed with the reason and the run moves on to the next, so one bad Career Site does
@@ -83,8 +84,9 @@ class ScrapeRunner {
     }
 
     /**
-     * Asks the active run to stop at its next check, between Companies or between pages. Returns
-     * the id of the run asked, or empty when the worker is idle and there is nothing to cancel.
+     * Asks the active run to stop at its next check, between Companies or between requests (a page
+     * or a posting's detail). Returns the id of the run asked, or empty when the worker is idle and
+     * there is nothing to cancel.
      */
     Optional<Long> requestCancel() {
         ActiveRun run = active.get();
@@ -121,9 +123,10 @@ class ScrapeRunner {
     }
 
     /**
-     * One Company's turn: mark it in progress, read its Career Site, store what was listed; or, if
-     * the run was cancelled part-way through the pages, store nothing and mark it cancelled; or,
-     * if the Career Site could not be read, store nothing and mark it failed with the reason.
+     * One Company's turn: mark it in progress, read its Career Site and the details it warrants,
+     * store what was listed; or, if the run was cancelled part-way through those requests, store
+     * nothing and mark it cancelled; or, if the Career Site could not be read, store nothing and
+     * mark it failed with the reason.
      */
     private void scrape(ActiveRun run, long outcomeId) {
         try {
@@ -151,10 +154,11 @@ class ScrapeRunner {
      * total, because Workday answers a request past the end with a full page again rather than an
      * empty one; at the first short page, because the Career Site may have shrunk since the first
      * page was read; and at {@link WorkdayClient#MAX_POSTINGS}, past which Workday lists nothing. A
-     * Career Site reporting that many is truncated: the count is a floor, not the truth.
+     * Career Site reporting that many is truncated: the count is a floor, not the truth. Once the
+     * whole list is in hand, each posting's Posting Date is fetched where its label warrants it.
      *
-     * <p>Empty when cancellation was requested before a page was read: the Career Site's listing
-     * is then incomplete and none of it is to be applied.
+     * <p>Empty when cancellation was requested before a page or a detail was read: the Career
+     * Site's listing is then incomplete and none of it is to be applied.
      */
     private Optional<CareerSitePostings> readCareerSite(ActiveRun run, CareerSite site) {
         List<WorkdayPosting> postings = new ArrayList<>();
@@ -174,7 +178,27 @@ class ScrapeRunner {
         } while (page.postings().size() == WorkdayClient.PAGE_SIZE
                 && offset < total
                 && offset < WorkdayClient.MAX_POSTINGS);
-        return Optional.of(
-                new CareerSitePostings(postings, total >= WorkdayClient.MAX_POSTINGS));
+        boolean truncated = total >= WorkdayClient.MAX_POSTINGS;
+        List<ScrapedPosting> scraped = new ArrayList<>(postings.size());
+        for (WorkdayPosting posting : postings) {
+            if (run.cancelRequested && posting.postedTodayOrYesterday()) {
+                return Optional.empty();
+            }
+            scraped.add(new ScrapedPosting(posting, postingDateOf(site, posting)));
+        }
+        return Optional.of(new CareerSitePostings(scraped, truncated));
+    }
+
+    /**
+     * The Posting Date of a posting labelled "Posted Today" or "Posted Yesterday", from its detail;
+     * {@code null} for any other label, which costs no request (ADR-0002). A detail that cannot be
+     * read fails the Company like a page that cannot be read; storing the posting without a date
+     * instead arrives with a later ticket.
+     */
+    private LocalDate postingDateOf(CareerSite site, WorkdayPosting posting) {
+        if (!posting.postedTodayOrYesterday()) {
+            return null;
+        }
+        return workday.fetchDetail(site, posting.externalPath()).startDate();
     }
 }

@@ -13,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.LocalDate;
 
 /**
  * One position listed on a Career Site, identified within its Company by the requisition ID (see
@@ -23,6 +24,11 @@ import jakarta.persistence.Table;
  * <p>A posting is Open while its Career Site lists it and Closed once a run that read the whole
  * Career Site found it gone ({@code V7__job_posting_state.sql}). Closed postings keep everything
  * they had when last seen, and a later sighting reopens them without touching First Seen.
+ *
+ * <p>The Posting Date is the calendar date Workday says the posting went live
+ * ({@code V8__posting_date.sql}). A run learns it only for postings labelled "Posted Today" or
+ * "Posted Yesterday" (ADR-0002), and once known it is kept: a later sighting under another label
+ * says nothing new about when the posting went live.
  */
 @Entity
 @Table(name = "job_posting")
@@ -52,6 +58,10 @@ public class JobPosting {
     @Column(name = "posted_on_label")
     private String postedOnLabel;
 
+    /** The Posting Date, a bare date in no timezone; {@code null} until a run has fetched it. */
+    @Column(name = "posting_date")
+    private LocalDate postingDate;
+
     @Column(name = "public_url", nullable = false, length = 2048)
     private String publicUrl;
 
@@ -70,22 +80,26 @@ public class JobPosting {
     protected JobPosting() {}
 
     /** A posting listed for the first time, by the given run; Open, like anything just listed. */
-    JobPosting(Company company, WorkdayPosting listing, ScrapeRun run) {
+    JobPosting(Company company, ScrapedPosting scraped, ScrapeRun run) {
         this.company = company;
-        this.requisitionId = listing.requisitionId();
+        this.requisitionId = scraped.posting().requisitionId();
         this.firstSeenRun = run;
-        seen(listing, run);
+        seen(scraped, run);
     }
 
     /**
      * The given run has listed this posting (again): refresh what Workday shows and Last Seen, and
-     * reopen it if it was Closed.
+     * reopen it if it was Closed, and keep the Posting Date when this sighting fetched one.
      */
-    void seen(WorkdayPosting listing, ScrapeRun run) {
+    void seen(ScrapedPosting scraped, ScrapeRun run) {
+        WorkdayPosting listing = scraped.posting();
         this.title = listing.title();
         this.externalPath = listing.externalPath();
         this.locationText = listing.locationsText();
         this.postedOnLabel = listing.postedOn();
+        if (scraped.postingDate() != null) {
+            this.postingDate = scraped.postingDate();
+        }
         this.publicUrl = company.getCareerSite().postingUrl(listing.externalPath());
         this.state = PostingState.OPEN;
         this.lastSeenRun = run;
@@ -122,6 +136,10 @@ public class JobPosting {
 
     public String getPostedOnLabel() {
         return postedOnLabel;
+    }
+
+    public LocalDate getPostingDate() {
+        return postingDate;
     }
 
     public String getPublicUrl() {

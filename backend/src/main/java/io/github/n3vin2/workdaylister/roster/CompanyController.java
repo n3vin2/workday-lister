@@ -19,16 +19,25 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code GET /api/companies}: the Roster as the Roster screen lists it. {@code GET
- * /api/companies/{id}}: one Company with its Open postings, as the Company screen shows it, and
- * its Closed ones too with {@code ?includeClosed=true}. {@code POST /api/companies/{id}/retry}:
- * Retry, a Scrape Run over just that Company.
+ * /api/companies/{id}?scope=today|all}: one Company with its Today's Postings (the default) or
+ * every Open posting, as the Company screen shows it, and the Closed ones among them too with
+ * {@code includeClosed=true}. {@code POST /api/companies/{id}/retry}: Retry, a Scrape Run over
+ * just that Company.
  */
 @RestController
 @RequestMapping("/api/companies")
 class CompanyController {
 
+    /** Why a Company request was refused: a scope the endpoint does not know. */
+    record Rejected(String reason) {}
+
     /** Why a Retry did not start a run: a Scrape Run is active. */
     record NotRetried(String reason) {}
+
+    /** The {@code scope} values the Company endpoint knows; anything else is a 400. */
+    private static final String SCOPE_TODAY = "today";
+    private static final String SCOPE_ALL = "all";
+    private static final String UNKNOWN_SCOPE = "Unknown scope \"%s\": use today (the default) or all";
 
     private final RosterService rosterService;
     private final JobPostingService jobPostingService;
@@ -45,19 +54,30 @@ class CompanyController {
 
     @GetMapping
     List<CompanySummary> list() {
-        return CompanySummary.ofAll(rosterService.companies());
+        return CompanySummary.ofAll(rosterService.companies(), jobPostingService.todayCounts());
     }
 
     @GetMapping("/{id}")
-    ResponseEntity<CompanyDetail> find(
+    ResponseEntity<?> find(
             @PathVariable long id,
+            @RequestParam(defaultValue = SCOPE_TODAY) String scope,
             @RequestParam(defaultValue = "false") boolean includeClosed) {
+        if (!scope.equals(SCOPE_TODAY) && !scope.equals(SCOPE_ALL)) {
+            return ResponseEntity.badRequest().body(new Rejected(UNKNOWN_SCOPE.formatted(scope)));
+        }
         Optional<Company> company = rosterService.find(id);
         if (company.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        List<JobPosting> postings = jobPostingService.postingsOf(company.get(), includeClosed);
-        return ResponseEntity.ok(CompanyDetail.of(company.get(), PostingSummary.ofAll(postings)));
+        List<JobPosting> postings =
+                scope.equals(SCOPE_ALL)
+                        ? jobPostingService.postingsOf(company.get(), includeClosed)
+                        : jobPostingService.todaysPostingsOf(company.get(), includeClosed);
+        return ResponseEntity.ok(
+                CompanyDetail.of(
+                        company.get(),
+                        jobPostingService.todayCountOf(company.get()),
+                        PostingSummary.ofAll(postings)));
     }
 
     /**

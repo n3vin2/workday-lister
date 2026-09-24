@@ -13,6 +13,7 @@ const acme = {
   id: 1,
   name: 'Acme',
   status: 'NEVER_SCRAPED',
+  todayCount: 0,
   openCount: 0,
   lastScrapedAt: null,
   truncated: false,
@@ -21,6 +22,7 @@ const nvidia = {
   id: 2,
   name: 'NVIDIA',
   status: 'SUCCEEDED',
+  todayCount: 3,
   openCount: 2000,
   lastScrapedAt: '2026-09-21T15:00:00Z',
   truncated: true,
@@ -105,15 +107,23 @@ test('an empty Roster shows an upload prompt instead of a table', async () => {
   expect(screen.queryByRole('table')).not.toBeInTheDocument()
 })
 
-test("lists each Company's Open count, last scraped time (in local time), and status", async () => {
-  rosterIs([acme, nvidia])
+test("lists each Company's today's count, Open count, last scraped time (in local time), and status, in the order the backend sorted them", async () => {
+  rosterIs([nvidia, acme])
 
   renderRoster()
 
   const rows = await screen.findAllByRole('row', { name: /never scraped|succeeded/i })
   expect(rows.map((row) => row.textContent)).toEqual([
-    'Acme——Never scraped',
-    'NVIDIA2000+2026-09-21 09:00Succeeded',
+    'NVIDIA32000+2026-09-21 09:00Succeeded',
+    'Acme———Never scraped',
+  ])
+  expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual([
+    'Company',
+    'Today',
+    'Open',
+    'Last scraped',
+    'Status',
+    'Actions',
   ])
   expect(screen.queryByText(/your roster is empty/i)).not.toBeInTheDocument()
 })
@@ -199,8 +209,8 @@ test('a successful upload replaces the Roster with the returned Companies and sh
 
   const rows = await screen.findAllByRole('row', { name: /queued/i })
   expect(rows.map((row) => row.textContent)).toEqual([
-    'Acme——Queued',
-    'NVIDIA2000+2026-09-21 09:00Queued',
+    'Acme———Queued',
+    'NVIDIA32000+2026-09-21 09:00Queued',
   ])
   expect(screen.queryByText(/your roster is empty/i)).not.toBeInTheDocument()
   expect(uploadBody).toContain('name="file"; filename="roster.csv"')
@@ -331,8 +341,8 @@ test('while a run is active the screen shows its progress and Cancel instead of 
   expect(screen.queryByRole('button', { name: /scrape now/i })).not.toBeInTheDocument()
   const rows = screen.getAllByRole('row', { name: /succeeded|in progress/i })
   expect(rows.map((row) => row.textContent)).toEqual([
-    'Acme32026-09-21 09:00Succeeded',
-    'NVIDIA2000+2026-09-21 09:00In progress',
+    'Acme032026-09-21 09:00Succeeded',
+    'NVIDIA32000+2026-09-21 09:00In progress',
   ])
 })
 
@@ -448,7 +458,7 @@ test('a failed Company shows Failed with its error reason and offers Retry', asy
   renderRoster()
 
   const row = await screen.findByRole('row', { name: /failed/i })
-  expect(row.textContent).toBe(`Acme32026-09-21 09:00Failed${FAILURE_REASON}Retry`)
+  expect(row.textContent).toBe(`Acme032026-09-21 09:00Failed${FAILURE_REASON}Retry`)
   expect(within(row).getByRole('button', { name: /retry/i })).toBeInTheDocument()
   expect(
     within(screen.getByRole('row', { name: /succeeded/i })).queryByRole('button'),
@@ -486,7 +496,7 @@ test("a failed Company's reason is shown from the active run's outcome while it 
   renderRoster()
 
   const row = await screen.findByRole('row', { name: /failed/i })
-  expect(row.textContent).toBe(`Acme32026-09-21 09:00Failed${FAILURE_REASON}`)
+  expect(row.textContent).toBe(`Acme032026-09-21 09:00Failed${FAILURE_REASON}`)
   expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
 })
 

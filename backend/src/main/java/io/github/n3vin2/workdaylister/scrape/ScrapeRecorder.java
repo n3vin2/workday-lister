@@ -3,7 +3,6 @@ package io.github.n3vin2.workdaylister.scrape;
 import io.github.n3vin2.workdaylister.roster.CareerSite;
 import io.github.n3vin2.workdaylister.roster.Company;
 import io.github.n3vin2.workdaylister.roster.CompanyRepository;
-import io.github.n3vin2.workdaylister.workday.WorkdayPosting;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HashMap;
@@ -114,15 +113,16 @@ class ScrapeRecorder {
             known.put(posting.getRequisitionId(), posting);
         }
         Set<String> seen = new HashSet<>();
-        for (WorkdayPosting listing : listed.postings()) {
-            if (!seen.add(listing.requisitionId())) {
+        for (ScrapedPosting scraped : listed.postings()) {
+            String requisitionId = scraped.posting().requisitionId();
+            if (!seen.add(requisitionId)) {
                 continue;
             }
-            JobPosting posting = known.get(listing.requisitionId());
+            JobPosting posting = known.get(requisitionId);
             if (posting == null) {
-                postings.save(new JobPosting(company, listing, run));
+                postings.save(new JobPosting(company, scraped, run));
             } else {
-                posting.seen(listing, run);
+                posting.seen(scraped, run);
             }
         }
         for (JobPosting posting : known.values()) {

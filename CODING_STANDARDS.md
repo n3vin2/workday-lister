@@ -43,17 +43,18 @@ roster/     Company, CareerSite, CompanyStatus, CompanyRepository, RosterService
             CompanyController, RosterController, RosterCsv, RosterEntry, CompanySummary, CompanyDetail
 scrape/     ScrapeRun, CompanyOutcome, JobPosting and their statuses and repositories; ScrapeRecorder
             (one transaction per step), ScrapeRunner (the background thread), ScrapeRunService,
-            JobPostingService, ScrapeRunController, RunSummary, PostingSummary
+            JobPostingService, ScrapeRunController, RunSummary, PostingSummary, ScrapedPosting,
+            CareerSitePostings, CompanyPostingCount
 workday/    WorkdayClient (the ADR-0001 adapter interface), HttpWorkdayClient, JobPage, WorkdayPosting, JobDetail
 ```
 
 - Default to package-private. Make a type or member `public` when another package, or a test in another package, needs it.
 - Dependencies point inward: `scrape` uses `roster` and `workday`; `workday` and `config` use `roster`'s `CareerSite` as a value type. `roster`'s controllers are the composition point: they alone may call `scrape`'s services (to start a run after an upload, to list a Company's postings). Nothing else in `roster` depends on `scrape`.
-- Tests mirror the main packages. The shared `IntegrationHarness` and `PinnedClockConfig` sit at the root test package.
+- Tests mirror the main packages. The shared `IntegrationHarness`, `PinnedClockConfig`, and `WorkdayPages` sit at the root test package.
 
 ### Types
 
-- **Records** for request and response bodies (`CompanySummary`, `RosterController.Replaced`), parse results (`RosterCsv.Result`, `RosterCsv.RowError`), value objects (`CareerSite`, which is also the `@Embeddable`), and configuration (`ScraperProperties`).
+- **Records** for request and response bodies (`CompanySummary`, `RosterController.Replaced`), parse results (`RosterCsv.Result`, `RosterCsv.RowError`), value objects (`CareerSite`, which is also the `@Embeddable`), what one step hands the next (`ScrapedPosting`, `CareerSitePostings`), query row types (`CompanyPostingCount`), and configuration (`ScraperProperties`).
 - **JPA entities are classes** with a `protected` no-arg constructor for Hibernate, a domain constructor that takes what the entity is built from (`Company(RosterEntry)`), getters, and package-private mutators named for the domain operation (`adopt`). No setters.
 - **Static factories** over constructors at call sites: `CompanySummary.of(company)`, `CompanySummary.ofAll(companies)`, `CareerSite.parse(url)`, `RosterCsv.parse(text)`.
 - A parse or validation result is **either/or, never both**: `Result(entries, errors)` with `isValid()`, entries empty when errors are present.
@@ -110,6 +111,7 @@ public class RosterService {
 - `@RestController` with a class-level `@RequestMapping("/api/...")`; bare `@GetMapping` / `@PostMapping` on methods. The class and its handler methods are package-private.
 - When the status is always 200, return the body directly (`List<CompanySummary> list()`). When it varies, return `ResponseEntity<?>` built with Spring's factories: `ok(...)`, `accepted()` for work that continues in the background, `badRequest().body(...)`, `status(HttpStatus.CONFLICT).body(...)`, `notFound().build()`. A refusal carries a one-field record saying why (`NotStarted(reason)`).
 - Validation failures are a 400 with a body that lists **every** error (`Rejected(errors)`), so the user fixes the file in one pass. They are not exceptions.
+- Query parameters are `@RequestParam(defaultValue = ...)` with the accepted values as `private static final String` constants; a value the endpoint does not know is a 400 with a one-field record saying why (`CompanyController.Rejected(reason)`).
 - Controllers map entities to records (`CompanySummary.ofAll(...)`); services return entities.
 - Uploads: `@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)` with `@RequestParam("file") MultipartFile file`.
 
@@ -121,7 +123,7 @@ public class RosterService {
 
 ### Repositories
 
-- `interface *Repository extends JpaRepository<Entity, Long>`, package-private, with derived queries such as `findAllByOrderByNameAsc()`.
+- `interface *Repository extends JpaRepository<Entity, Long>`, package-private, with derived queries such as `findAllByOrderByNameAsc()`. A grouped count that a derived query cannot express is an `@Query` JPQL constructor expression into a package-private record (`CompanyPostingCount`).
 
 ### Entities and schema
 
@@ -143,9 +145,9 @@ public class RosterService {
 
 ### Tests
 
-- Integration tests extend `IntegrationHarness`: the full context on a random port, a Testcontainers MySQL via `@ServiceConnection`, a WireMock `workday` stub standing in for every Career Site, pacing and retry backoff set to zero, and the clock pinned by `PinnedClockConfig`. Both servers start once per JVM in a static block and are shared across classes. Before each test the harness waits for the last Scrape Run it started, resets the stub, gives every Career Site an empty page as the fallback stub (so a run always finishes), and empties the Roster.
+- Integration tests extend `IntegrationHarness`: the full context on a random port, a Testcontainers MySQL via `@ServiceConnection`, a WireMock `workday` stub standing in for every Career Site, pacing and retry backoff set to zero, and the clock pinned by `PinnedClockConfig` (`PINNED_NOW`, and `PINNED_TODAY` for its date in Regina). Both servers start once per JVM in a static block and are shared across classes. Before each test the harness waits for the last Scrape Run it started, resets the stub, gives every Career Site an empty page and every posting's detail a far-past Posting Date as fallback stubs (so a run always finishes and nothing is today's by accident), and empties the Roster.
 - Drive the application **only** through `api` (a `TestRestTemplate`) and the `workday` stub. No repository or service calls from tests. Background work is observed by polling the API with Awaitility (`awaitRunFinished`) and Workday traffic through the stub's request journal (`workday.findAll`, `getAllServeEvents`), never through pacing or timing, with one exception: a lower bound on the time between two journal entries (`gaps`), which the client's wait guarantees, is how pacing, backoff and `Retry-After` are asserted (`PacingTest`, in a context of its own where both are long enough to measure). To catch a run mid-Company, give that Company's stub the `HOLD` transformer and call `holdResponses()`; the response goes out only on `releaseHeldResponses()`. No test races a delay against a deadline.
-- Recorded Workday responses live under `src/test/resources/wiremock/__files/workday/` with a README naming the capture; tests that need a particular `total` or page length build pages in the same shape with a helper.
+- Recorded Workday responses live under `src/test/resources/wiremock/__files/workday/` with a README naming the capture; tests that need a particular `total`, page length, label, or Posting Date build bodies in the same shape with `WorkdayPages` (`jobsPage`, `listing`, `postings`, `detail`) and stub them through the harness (`stubJobs`, `stubJobsFromRecording`, `stubDetail`). The harness's `texts`, `ints`, `longs`, and `booleans` read one field of every element of a JSON array.
 - One test class per feature, `*Test`. Method names are sentences in camelCase with no `test` or `should` prefix: `reuploadKeepsMatchingIdsAdoptsNewNamesAndDeletesAbsentCompanies`.
 - AssertJ `assertThat`; a blank line separates act from assert; CSV fixtures are text blocks; private static helpers (`errors`, `names`) sit at the bottom of the class.
 - Configuration records are tested with `ApplicationContextRunner` and a nested `static class Config` carrying `@EnableConfigurationProperties`.

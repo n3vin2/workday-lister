@@ -1,11 +1,12 @@
 package io.github.n3vin2.workdaylister.scrape;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
-import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static io.github.n3vin2.workdaylister.WorkdayPages.jobsPage;
+import static io.github.n3vin2.workdaylister.WorkdayPages.listing;
+import static io.github.n3vin2.workdaylister.WorkdayPages.postings;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -157,7 +158,7 @@ class ScrapeRunTest extends IntegrationHarness {
         long acmeId = companies().get(0).path("id").asLong();
 
         ResponseEntity<JsonNode> response =
-                api.getForEntity("/api/companies/" + acmeId, JsonNode.class);
+                api.getForEntity("/api/companies/" + acmeId + "?scope=all", JsonNode.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode company = response.getBody();
@@ -208,7 +209,7 @@ class ScrapeRunTest extends IntegrationHarness {
         long secondRun = started.getBody().path("id").asLong();
         awaitRunFinished(secondRun);
         // The Accountant is Closed after the second run; it is asked for so its Last Seen shows.
-        JsonNode postings = company(acmeId, true).path("postings");
+        JsonNode postings = company(acmeId, "all", true).path("postings");
         assertThat(texts(postings, "title"))
                 .containsExactly("Accountant", "Clerk", "Senior Zebra Keeper");
         assertThat(texts(postings, "requisitionId")).containsExactly("R1", "R3", "R2");
@@ -308,20 +309,6 @@ class ScrapeRunTest extends IntegrationHarness {
                 api.getForEntity("/api/companies/999999", JsonNode.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-    }
-
-    /**
-     * Stubs one page with a response recorded from a real Career Site; the fixtures' README says
-     * when and how it was captured.
-     */
-    private static void stubJobsFromRecording(String jobsPath, int offset, String bodyFile) {
-        workday.stubFor(
-                post(urlEqualTo(jobsPath))
-                        .withRequestBody(matchingJsonPath("$[?(@.offset == " + offset + ")]"))
-                        .willReturn(
-                                aResponse()
-                                        .withHeader("Content-Type", "application/json")
-                                        .withBodyFile(bodyFile)));
     }
 
     private static JsonNode body(LoggedRequest request) {

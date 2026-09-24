@@ -20,8 +20,9 @@ cd frontend && npm install && npm run dev   # 3. Vite on http://localhost:5173, 
 Open http://localhost:5173. The Roster screen shows an upload prompt until you upload a CSV. An
 accepted upload starts a Scrape Run at once, and the screen follows it live: how many Companies are
 done, the time elapsed, and each Company going from "Queued" through "In progress" to "Succeeded".
-When the run ends, click a Company to see its Open postings. If the Roster does not load, check
-that the backend is running (its health check is at http://localhost:8080/api/health).
+When the run ends, click a Company to see its Today's Postings, or every Open posting with "Show
+all Open postings" ticked. If the Roster does not load, check that the backend is running (its
+health check is at http://localhost:8080/api/health).
 
 ## Roster CSV
 
@@ -55,19 +56,18 @@ Only one run is active at a time. While one is, "Scrape now" and uploads are ref
 `409` and the screen says a run is in progress, so the Roster never changes under a run (a CSV
 that fails validation is still rejected with a `400` first). The Roster screen polls the active
 run every 2 seconds, refreshing the Company list on each poll, and stops polling as soon as no run
-is active. Cancel asks the run to stop; it checks between Companies and between pages, so it stops
-within one Workday request. Companies it finished keep their Job Postings and Company Outcome, the
-Company it was reading is marked cancelled with none of that Career Site's listing applied, the
-Companies it had not reached are left as they were, and the run is recorded as cancelled.
+is active. Cancel asks the run to stop; it checks between Companies and between requests, so it
+stops within one Workday request. Companies it finished keep their Job Postings and Company
+Outcome, the Company it was reading is marked cancelled with none of that Career Site's listing
+applied, the Companies it had not reached are left as they were, and the run is recorded as
+cancelled.
 
 For each Company the run reads Workday's jobs endpoint in pages of 20 ([ADR-0001](docs/adr/0001-workday-cxs-json-endpoint.md)),
 stopping when the offset reaches the total the first page reported, at the first short page, or at
 Workday's cap of 2,000 postings. A Career Site that reports 2,000 is flagged truncated on both
 screens: its count is a floor. Postings are identified within a Company by the requisition ID that
 ends the Workday path; a posting listed for the first time records this run as First Seen, and
-every listed posting records it as Last Seen. The Roster screen shows each Company's Open posting
-count, last scraped time and status; the Company screen at `/companies/:id` lists every Open
-posting as a card that opens the posting on Workday in a new tab.
+every listed posting records it as Last Seen.
 
 Once everything a Career Site lists has been read, every posting it listed is Open and every
 stored posting it no longer listed is Closed: kept with everything it had when last seen, hidden
@@ -86,7 +86,24 @@ read after the last retry, cannot be reached at all, or answers with any other e
 marked failed with a short reason, and the run moves on to the next Company and finishes partially
 failed. The Roster screen shows the reason under the failed status and offers Retry, a run over just
 that Company under the same one-run-at-a-time rule as a full run. Cancel takes effect at the run's
-next check between Companies or pages, so a wait in progress finishes first.
+next check between Companies or requests, so a wait in progress finishes first.
+
+## Today's Postings
+
+Workday's list only labels a posting's age relative to the employer's timezone ("Posted Today",
+"Posted Yesterday", "Posted 30+ Days Ago"), so the run fetches the posting's detail, which carries
+an absolute `startDate`, for postings labelled "Posted Today" or "Posted Yesterday" only, and stores
+that date as the Posting Date ([ADR-0002](docs/adr/0002-posted-today-definition.md)). Every other
+posting costs no extra request and has no Posting Date. A Company's Today's Postings are its Open
+postings whose Posting Date equals the current date in `scraper.timezone` (default
+`America/Regina`), judged when the page is loaded, so yesterday's results age out at midnight
+without a re-scrape.
+
+The Roster screen shows each Company's today's count, Open posting count, last scraped time and
+status, with the Companies that have the most Today's Postings first and ties by name. The Company
+screen at `/companies/:id` lists Today's Postings as cards that open the posting on Workday in a new
+tab, each with its Posting Date; "Show all Open postings" reveals every Open posting instead, and
+"Include Closed postings" adds the Closed ones to either view.
 
 | Endpoint | What |
 | --- | --- |
@@ -94,12 +111,12 @@ next check between Companies or pages, so a wait in progress finishes first.
 | `GET /api/runs/current` | The active run's progress: Companies `done` of `total`, `startedAt`, and each Company's outcome status. `204` when no run is active. |
 | `POST /api/runs/current/cancel` | Ask the active run to stop. `202` with the run, or `204` when no run is active. |
 | `GET /api/runs/{id}` | The run, with its start and end time, status (`RUNNING`, `SUCCEEDED`, `PARTIALLY_FAILED`, `CANCELLED`), progress, and each Company's outcome (status, postings seen, truncated, error message). |
-| `GET /api/companies/{id}` | A Company's header plus its Open postings; `?includeClosed=true` adds its Closed ones. Each posting carries its `state`, `OPEN` or `CLOSED`. |
+| `GET /api/companies` | The Roster, each Company with its today's count, ordered by that count descending and then by name. |
+| `GET /api/companies/{id}?scope=today` | A Company's header plus its Today's Postings (`today` is the default) or, with `scope=all`, every Open posting; any other scope is a `400`. `?includeClosed=true` adds the Closed ones among them. Each posting carries its `postingDate` (null unless a run fetched it) and its `state`, `OPEN` or `CLOSED`. |
 | `POST /api/companies/{id}/retry` | Retry: start a run over just that Company. `202` with the run, `409` with a `reason` when a run is active, or `404` when no Company has that id. |
 
 `POST /api/roster` also answers `409` with a `reason` while a run is active. Finished runs are
-stored but not displayed: there is no run history screen. Today's Postings is tracked as a
-separate issue.
+stored but not displayed: there is no run history screen.
 
 ## Layout
 

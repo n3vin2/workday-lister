@@ -1,10 +1,18 @@
 package io.github.n3vin2.workdaylister.scrape;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static io.github.n3vin2.workdaylister.PinnedClockConfig.PINNED_TODAY;
+import static io.github.n3vin2.workdaylister.WorkdayPages.POSTED_TODAY;
+import static io.github.n3vin2.workdaylister.WorkdayPages.detail;
+import static io.github.n3vin2.workdaylister.WorkdayPages.jobsPage;
+import static io.github.n3vin2.workdaylister.WorkdayPages.listing;
+import static io.github.n3vin2.workdaylister.WorkdayPages.postings;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -23,7 +31,8 @@ import org.springframework.http.ResponseEntity;
 class ActiveRunTest extends IntegrationHarness {
 
     private static final String ACME_JOBS = "/wday/cxs/acme/Careers/jobs";
-    private static final String BETA_JOBS = "/wday/cxs/beta/Jobs/jobs";
+    private static final String BETA_SITE = "/wday/cxs/beta/Jobs";
+    private static final String BETA_JOBS = BETA_SITE + "/jobs";
     private static final String GAMMA_JOBS = "/wday/cxs/gamma/Careers/jobs";
 
     private static final String TWO_COMPANIES =
@@ -39,6 +48,9 @@ class ActiveRunTest extends IntegrationHarness {
             Beta,https://beta.wd1.myworkdayjobs.com/Jobs
             Gamma,https://gamma.wd1.myworkdayjobs.com/Careers
             """;
+
+    private static final String ACCOUNTANT_PATH = "/job/Regina-SK/Accountant_R1";
+    private static final String CLERK_PATH = "/job/Regina-SK/Clerk_R2";
 
     private static final String PINNED_NOW = PinnedClockConfig.PINNED_NOW.toString();
     private static final String RUN_IN_PROGRESS =
@@ -184,7 +196,7 @@ class ActiveRunTest extends IntegrationHarness {
         assertThat(beta.path("startedAt").asText()).isEqualTo(PINNED_NOW);
         assertThat(beta.path("finishedAt").asText()).isEqualTo(PINNED_NOW);
         assertThat(beta.path("postingsSeen").asInt()).isEqualTo(0);
-        JsonNode company = api.getForObject("/api/companies/" + betaId, JsonNode.class);
+        JsonNode company = company(betaId, "all");
         assertThat(company.path("status").asText()).isEqualTo("CANCELLED");
         assertThat(company.path("openCount").asInt()).isEqualTo(2);
         assertThat(texts(company.path("postings"), "requisitionId")).containsExactly("R0", "R1");
@@ -200,6 +212,48 @@ class ActiveRunTest extends IntegrationHarness {
     }
 
     @Test
+    void cancelBetweenDetailsLeavesTheCurrentCompanyCancelledWithItsPostingsUntouched() {
+        stubJobs(BETA_JOBS, 0, jobsPage(2, 0, 2));
+        long firstRun = uploadRoster(TWO_COMPANIES).getBody().path("run").path("id").asLong();
+        awaitRunFinished(firstRun);
+        long betaId = companies().get(1).path("id").asLong();
+        workday.resetAll();
+        stubJobs(ACME_JOBS, 0, jobsPage(1, 0, 1));
+        stubJobs(
+                BETA_JOBS,
+                0,
+                postings(
+                        listing("Accountant", ACCOUNTANT_PATH, "Regina, SK", POSTED_TODAY),
+                        listing("Clerk", CLERK_PATH, "Regina, SK", POSTED_TODAY)));
+        holdDetail(BETA_SITE + ACCOUNTANT_PATH, detail(PINNED_TODAY));
+        stubDetail(BETA_SITE + CLERK_PATH, detail(PINNED_TODAY));
+        holdResponses();
+        long secondRun = startRun().getBody().path("id").asLong();
+        await().untilAsserted(
+                () ->
+                        assertThat(workday.findAll(postRequestedFor(urlEqualTo(BETA_JOBS))))
+                                .hasSize(1));
+
+        assertThat(cancelRun().getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+
+        releaseHeldResponses();
+        awaitIdle();
+
+        JsonNode run = run(secondRun);
+        assertThat(run.path("status").asText()).isEqualTo("CANCELLED");
+        JsonNode beta = run.path("outcomes").get(1);
+        assertThat(beta.path("status").asText()).isEqualTo("CANCELLED");
+        assertThat(beta.path("postingsSeen").asInt()).isEqualTo(0);
+        JsonNode company = company(betaId, "all");
+        assertThat(company.path("status").asText()).isEqualTo("CANCELLED");
+        assertThat(company.path("todayCount").asInt()).isEqualTo(0);
+        assertThat(texts(company.path("postings"), "requisitionId")).containsExactly("R0", "R1");
+        assertThat(longs(company.path("postings"), "lastSeenRunId")).containsOnly(firstRun);
+        // The run stopped between detail requests: the Clerk's detail was never asked for.
+        assertThat(workday.findAll(getRequestedFor(urlEqualTo(BETA_SITE + CLERK_PATH)))).isEmpty();
+    }
+
+    @Test
     void cancelWhenNoRunIsActiveIsNoContent() {
         ResponseEntity<JsonNode> response = cancelRun();
 
@@ -209,5 +263,11 @@ class ActiveRunTest extends IntegrationHarness {
     /** Stubs a Career Site's jobs endpoint to answer only once held responses are released. */
     private static void holdJobs(String jobsPath, String body) {
         workday.stubFor(post(urlEqualTo(jobsPath)).willReturn(okJson(body).withTransformers(HOLD)));
+    }
+
+    /** Stubs a posting's detail endpoint to answer only once held responses are released. */
+    private static void holdDetail(String detailPath, String body) {
+        workday.stubFor(
+                get(urlEqualTo(detailPath)).willReturn(okJson(body).withTransformers(HOLD)));
     }
 }

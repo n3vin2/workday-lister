@@ -5,16 +5,17 @@ import Notice from '../components/Notice.jsx'
 import { formatDateTime, formatStatus } from '../format.js'
 
 /**
- * The Company screen at /companies/:id: the Company's header (status, last scraped time, Open
- * count, truncated flag) and every Open posting as a card linking to Workday. Closed postings are
- * hidden until "Include Closed postings" is ticked, which asks the backend for them again and then
- * shows them with a Closed marker. Today's Postings and the "show all" toggle arrive in a later
- * ticket.
+ * The Company screen at /companies/:id: the Company's header (today's count, Open count, status,
+ * last scraped time, truncated flag) and its Today's Postings as cards linking to Workday, or every
+ * Open posting once "Show all Open postings" is ticked. Closed postings are hidden until "Include
+ * Closed postings" is ticked; either option asks the backend for the postings again, and a Closed
+ * posting's card carries a Closed marker.
  */
 export default function CompanyPage() {
   const { id } = useParams()
-  const [company, setCompany] = useState(null)
+  const [showAll, setShowAll] = useState(false)
   const [includeClosed, setIncludeClosed] = useState(false)
+  const [company, setCompany] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -22,7 +23,7 @@ export default function CompanyPage() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    getCompany(id, { includeClosed })
+    getCompany(id, { scope: showAll ? 'all' : 'today', includeClosed })
       .then((result) => {
         if (cancelled) return
         if (result.ok) {
@@ -42,7 +43,7 @@ export default function CompanyPage() {
     return () => {
       cancelled = true
     }
-  }, [id, includeClosed])
+  }, [id, showAll, includeClosed])
 
   return (
     <main className="mx-auto max-w-4xl p-6">
@@ -59,12 +60,19 @@ export default function CompanyPage() {
       {company !== null && !notFound && !loadFailed && (
         <>
           <CompanyHeader company={company} />
-          <Postings
-            company={company}
-            includeClosed={includeClosed}
-            loading={loading}
-            onIncludeClosedChange={setIncludeClosed}
-          />
+          {company.status !== 'NEVER_SCRAPED' && (
+            <PostingFilters
+              showAll={showAll}
+              includeClosed={includeClosed}
+              onShowAllChange={setShowAll}
+              onIncludeClosedChange={setIncludeClosed}
+            />
+          )}
+          {loading ? (
+            <Notice>Loading postings…</Notice>
+          ) : (
+            <Postings company={company} showAll={showAll} includeClosed={includeClosed} />
+          )}
         </>
       )}
     </main>
@@ -72,12 +80,12 @@ export default function CompanyPage() {
 }
 
 function CompanyHeader({ company }) {
-  const count = company.truncated ? `${company.openCount}+` : company.openCount
   return (
     <header className="mt-4">
       <h1 className="text-2xl font-semibold">{company.name}</h1>
       <p className="mt-1 text-sm text-gray-600">
-        Open postings: {count} · {formatStatus(company.status)}
+        Today's Postings: {company.todayCount} · Open postings: {openCount(company)} ·{' '}
+        {formatStatus(company.status)}
         {company.lastScrapedAt && ` · Last scraped ${formatDateTime(company.lastScrapedAt)}`}
       </p>
       {company.truncated && (
@@ -91,19 +99,21 @@ function CompanyHeader({ company }) {
 }
 
 /**
- * The postings section: the include-closed option, then the cards, an empty notice, or a loading
- * notice while the postings are being fetched again after the option changed.
+ * Which postings the screen shows: just Today's Postings or every Open posting, and whether the
+ * Closed ones among them are included.
  */
-function Postings({ company, includeClosed, loading, onIncludeClosedChange }) {
-  if (company.status === 'NEVER_SCRAPED') {
-    return (
-      <Notice>This Company has not been scraped yet. Start a Scrape Run from the Roster.</Notice>
-    )
-  }
-  const empty = company.postings.length === 0
+function PostingFilters({ showAll, includeClosed, onShowAllChange, onIncludeClosedChange }) {
   return (
-    <section className="mt-6">
-      <label className="flex items-center gap-2 text-sm">
+    <div className="mt-6 flex flex-wrap gap-4 text-sm">
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={showAll}
+          onChange={(event) => onShowAllChange(event.target.checked)}
+        />
+        <span>Show all Open postings</span>
+      </label>
+      <label className="flex items-center gap-2">
         <input
           type="checkbox"
           checked={includeClosed}
@@ -111,25 +121,48 @@ function Postings({ company, includeClosed, loading, onIncludeClosedChange }) {
         />
         <span>Include Closed postings</span>
       </label>
-      {loading && <Notice>Loading postings…</Notice>}
-      {!loading && empty && (
-        <Notice>{includeClosed ? 'No postings, Open or Closed.' : 'No Open postings.'}</Notice>
-      )}
-      {!loading && !empty && (
-        <ul
-          aria-label={includeClosed ? 'Open and Closed postings' : 'Open postings'}
-          className="mt-4 grid gap-3 sm:grid-cols-2"
-        >
-          {company.postings.map((posting) => (
-            <PostingCard key={posting.requisitionId} posting={posting} />
-          ))}
-        </ul>
-      )}
-    </section>
+    </div>
   )
 }
 
-/** One posting: its title links to Workday; a Closed posting is muted and marked as such. */
+/** The cards for the postings of the chosen scope, or a notice saying why there are none. */
+function Postings({ company, showAll, includeClosed }) {
+  if (company.status === 'NEVER_SCRAPED') {
+    return (
+      <Notice>This Company has not been scraped yet. Start a Scrape Run from the Roster.</Notice>
+    )
+  }
+  if (company.postings.length === 0) {
+    if (showAll) {
+      return <Notice>{includeClosed ? 'No postings, Open or Closed.' : 'No Open postings.'}</Notice>
+    }
+    if (company.openCount === 0) return <Notice>No Open postings.</Notice>
+    return (
+      <Notice>
+        No Today's Postings: none of this Company's {openCount(company)} Open postings has today's
+        Posting Date. Tick "Show all Open postings" to see them.
+      </Notice>
+    )
+  }
+  return (
+    <ul aria-label={listName(showAll, includeClosed)} className="mt-6 grid gap-3 sm:grid-cols-2">
+      {company.postings.map((posting) => (
+        <PostingCard key={posting.requisitionId} posting={posting} />
+      ))}
+    </ul>
+  )
+}
+
+/** The list's accessible name, saying which postings it holds. */
+function listName(showAll, includeClosed) {
+  if (showAll) return includeClosed ? 'Open and Closed postings' : 'Open postings'
+  return includeClosed ? "Today's Postings, Open and Closed" : "Today's Postings"
+}
+
+/**
+ * One posting: its title linking to Workday, location, Posting Date when known, requisition ID. A
+ * Closed posting is muted and marked as such.
+ */
 function PostingCard({ posting }) {
   const closed = posting.state === 'CLOSED'
   const border = closed ? 'border-dashed border-gray-300 bg-gray-50' : 'border-gray-200'
@@ -151,7 +184,15 @@ function PostingCard({ posting }) {
         )}
       </div>
       <p className="mt-1 text-sm text-gray-600">{posting.locationText}</p>
+      {posting.postingDate && (
+        <p className="mt-1 text-sm text-gray-600">Posted {posting.postingDate}</p>
+      )}
       <p className="mt-1 text-xs text-gray-500">{posting.requisitionId}</p>
     </li>
   )
+}
+
+/** The Open count, marked as a floor when the Career Site hit Workday's cap. */
+function openCount(company) {
+  return company.truncated ? `${company.openCount}+` : company.openCount
 }

@@ -23,9 +23,10 @@ async function loadRunThenRoster() {
 
 /**
  * The Roster screen: upload a CSV of Companies, start a Scrape Run over it, and see what the latest
- * run left for each Company. While a run is active the upload form and Scrape now give way to the
- * run's progress and a Cancel button, and each Company's row shows where the run is with it. A
- * failed Company shows why and offers Retry, a run over just that Company.
+ * run left for each Company, the Companies with the most Today's Postings first. While a run is
+ * active the upload form and Scrape now give way to the run's progress and a Cancel button, and
+ * each Company's row shows where the run is with it. A failed Company shows why and offers Retry,
+ * a run over just that Company.
  */
 export default function RosterPage() {
   const [companies, setCompanies] = useState(null)
@@ -345,6 +346,7 @@ function CompanyTable({ companies, run, onRetried, onRetryRefused }) {
       <thead>
         <tr className="border-b border-gray-200 text-xs uppercase text-gray-500">
           <th className="py-2 pr-4">Company</th>
+          <th className="py-2 pr-4">Today</th>
           <th className="py-2 pr-4">Open</th>
           <th className="py-2 pr-4">Last scraped</th>
           <th className="py-2 pr-4">Status</th>
@@ -365,6 +367,9 @@ function CompanyTable({ companies, run, onRetried, onRetryRefused }) {
                 >
                   {company.name}
                 </Link>
+              </td>
+              <td className="py-2 pr-4 tabular-nums">
+                {company.status === 'NEVER_SCRAPED' ? '—' : company.todayCount}
               </td>
               <td className="py-2 pr-4 tabular-nums">
                 <OpenCount company={company} />

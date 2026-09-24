@@ -106,7 +106,8 @@ public class ScrapeRunService {
 
     /**
      * Asks the active run to stop; it does so at its next check, between Companies or between
-     * pages, and is then recorded as cancelled. Returns that run, or empty when none is active.
+     * requests (a page or a posting's detail), and is then recorded as cancelled. Returns that
+     * run, or empty when none is active.
      */
     @Transactional(readOnly = true)
     public Optional<ScrapeRun> cancel() {

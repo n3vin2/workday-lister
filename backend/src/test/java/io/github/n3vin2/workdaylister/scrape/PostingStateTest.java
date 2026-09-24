@@ -3,6 +3,8 @@ package io.github.n3vin2.workdaylister.scrape;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.serverError;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static io.github.n3vin2.workdaylister.WorkdayPages.listing;
+import static io.github.n3vin2.workdaylister.WorkdayPages.postings;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -11,8 +13,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Open and Closed postings: what a Scrape Run does to a Company's stored postings once it has read
- * everything its Career Site lists, and how {@code GET /api/companies/{id}} (with and without
- * {@code includeClosed=true}) and {@code GET /api/companies} report them.
+ * everything its Career Site lists, and how {@code GET /api/companies/{id}?scope=all} (with and
+ * without {@code includeClosed=true}) and {@code GET /api/companies} report them.
  */
 class PostingStateTest extends IntegrationHarness {
 
@@ -38,7 +40,7 @@ class PostingStateTest extends IntegrationHarness {
 
         startAndAwaitRun();
 
-        JsonNode company = company(acmeId);
+        JsonNode company = company(acmeId, "all");
         assertThat(texts(company.path("postings"), "requisitionId")).containsExactly("R3", "R2");
         assertThat(texts(company.path("postings"), "state")).containsOnly("OPEN");
         assertThat(company.path("openCount").asInt()).isEqualTo(2);
@@ -53,7 +55,7 @@ class PostingStateTest extends IntegrationHarness {
         stubJobs(ACME_JOBS, 0, postings(ZEBRA_KEEPER));
         long secondRun = startAndAwaitRun();
 
-        JsonNode postings = company(acmeId, true).path("postings");
+        JsonNode postings = company(acmeId, "all", true).path("postings");
 
         assertThat(texts(postings, "requisitionId")).containsExactly("R1", "R2");
         assertThat(texts(postings, "state")).containsExactly("CLOSED", "OPEN");
@@ -78,7 +80,7 @@ class PostingStateTest extends IntegrationHarness {
 
         long thirdRun = startAndAwaitRun();
 
-        JsonNode company = company(acmeId);
+        JsonNode company = company(acmeId, "all");
         JsonNode postings = company.path("postings");
         assertThat(texts(postings, "requisitionId")).containsExactly("R1", "R2");
         assertThat(texts(postings, "state")).containsOnly("OPEN");
@@ -96,12 +98,12 @@ class PostingStateTest extends IntegrationHarness {
 
         startAndAwaitRun();
 
-        JsonNode company = company(acmeId);
+        JsonNode company = company(acmeId, "all");
         JsonNode postings = company.path("postings");
         assertThat(texts(postings, "requisitionId")).containsExactly("R1", "R2");
         assertThat(texts(postings, "state")).containsOnly("OPEN");
         assertThat(longs(postings, "lastSeenRunId")).containsOnly(firstRun);
         assertThat(company.path("openCount").asInt()).isEqualTo(2);
-        assertThat(company(acmeId, true).path("postings")).hasSize(2);
+        assertThat(company(acmeId, "all", true).path("postings")).hasSize(2);
     }
 }

@@ -1,5 +1,7 @@
 package io.github.n3vin2.workdaylister;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
@@ -18,6 +20,7 @@ import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -56,16 +59,17 @@ import org.testcontainers.containers.MySQLContainer;
  * Roster; waiting after as well means no run outlives its test, even when the next test class
  * boots a context of its own (a subclass with a {@code @TestPropertySource}) against the same
  * database and stub. Until a test says otherwise, every Career Site on the stub is empty (a page
- * with no postings), so a run always finishes.
+ * with no postings) and every posting's detail reports {@link #FALLBACK_POSTING_DATE}, so a run
+ * always finishes and nothing is today's by accident.
  *
  * <p>To observe a run in the middle of a Company, a test gives that Company's stub the
  * {@link #HOLD} transformer and calls {@link #holdResponses()}: the stub then answers only once
  * the test calls {@link #releaseHeldResponses()}. No test depends on a delay racing a deadline.
  *
- * <p>Helpers build pages in the shape of the recorded fixtures ({@link #jobsPage},
- * {@link #postings}, {@link #listing}), stub them by offset ({@link #stubJobs}), and read one field
- * out of every element of a JSON array ({@link #texts}, {@link #longs}, {@link #ints},
- * {@link #booleans}).
+ * <p>Tests build Workday bodies with {@link WorkdayPages} and stub them here: a jobs page by
+ * offset ({@link #stubJobs}, {@link #stubJobsFromRecording}) and a posting's detail by path
+ * ({@link #stubDetail}). {@link #texts}, {@link #longs}, {@link #ints} and {@link #booleans} read
+ * one field out of every element of a JSON array.
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -108,6 +112,12 @@ public abstract class IntegrationHarness {
     /** A Career Site with no postings, in the shape Workday's jobs endpoint answers with. */
     protected static final String EMPTY_JOBS_PAGE =
             "{\"total\":0,\"jobPostings\":[],\"userAuthenticated\":false}";
+
+    /**
+     * The Posting Date every posting's detail reports until a test stubs it: far from
+     * {@link PinnedClockConfig#PINNED_TODAY}, so a posting is today's only when a test says so.
+     */
+    protected static final LocalDate FALLBACK_POSTING_DATE = LocalDate.of(2000, 1, 1);
 
     /** Lower priority than WireMock's default of 5, so a test's own stubs win over the fallback. */
     private static final int FALLBACK_PRIORITY = 10;
@@ -154,6 +164,10 @@ public abstract class IntegrationHarness {
                 post(urlMatching("/wday/cxs/.*/jobs"))
                         .atPriority(FALLBACK_PRIORITY)
                         .willReturn(okJson(EMPTY_JOBS_PAGE)));
+        workday.stubFor(
+                get(urlMatching("/wday/cxs/.*/job/.*"))
+                        .atPriority(FALLBACK_PRIORITY)
+                        .willReturn(okJson(WorkdayPages.detail(FALLBACK_POSTING_DATE))));
         uploadRoster("company,url\n");
     }
 
@@ -258,18 +272,21 @@ public abstract class IntegrationHarness {
         return api.getForObject("/api/companies", JsonNode.class);
     }
 
-    /** {@code GET /api/companies/{id}}: a Company as the Company screen shows it by default. */
-    protected JsonNode company(long companyId) {
-        return company(companyId, false);
+    /**
+     * {@code GET /api/companies/{id}?scope=...}: one Company with the postings of that scope,
+     * {@code today} or {@code all}, the Open ones only.
+     */
+    protected JsonNode company(long companyId, String scope) {
+        return company(companyId, scope, false);
     }
 
     /**
-     * {@code GET /api/companies/{id}?includeClosed=...}: a Company with its Open postings, and its
-     * Closed ones too when asked.
+     * {@code GET /api/companies/{id}?scope=...&includeClosed=...}: one Company with the postings
+     * of that scope, and the Closed ones among them too when asked.
      */
-    protected JsonNode company(long companyId, boolean includeClosed) {
-        return api.getForObject(
-                "/api/companies/" + companyId + "?includeClosed=" + includeClosed, JsonNode.class);
+    protected JsonNode company(long companyId, String scope, boolean includeClosed) {
+        String query = "?scope=" + scope + "&includeClosed=" + includeClosed;
+        return api.getForObject("/api/companies/" + companyId + query, JsonNode.class);
     }
 
     /** Stubs one page of a Career Site's jobs endpoint, matched on the requested offset. */
@@ -280,46 +297,34 @@ public abstract class IntegrationHarness {
                         .willReturn(okJson(body)));
     }
 
-    /** A single page listing exactly the given postings. */
-    protected static String postings(String... listings) {
-        return page(listings.length, List.of(listings));
-    }
-
-    /** One listing in the recorded shape, labelled {@code Posted Today}. */
-    protected static String listing(String title, String externalPath, String location) {
-        String requisitionId = externalPath.substring(externalPath.lastIndexOf('_') + 1);
-        return """
-                {"title":"%s","externalPath":"%s","locationsText":"%s","postedOn":"Posted Today",\
-                "bulletFields":["%s"]}"""
-                .formatted(title, externalPath, location, requisitionId);
-    }
-
-    /** A page in the shape of the recorded fixtures: the given total and listings. */
-    protected static String page(int total, List<String> listings) {
-        return "{\"total\":%d,\"jobPostings\":[%s],\"userAuthenticated\":false}"
-                .formatted(total, String.join(",", listings));
+    /**
+     * Stubs one page with a response recorded from a real Career Site; the fixtures' README says
+     * when and how it was captured.
+     */
+    protected static void stubJobsFromRecording(String jobsPath, int offset, String bodyFile) {
+        workday.stubFor(
+                post(urlEqualTo(jobsPath))
+                        .withRequestBody(matchingJsonPath("$[?(@.offset == " + offset + ")]"))
+                        .willReturn(
+                                aResponse()
+                                        .withHeader("Content-Type", "application/json")
+                                        .withBodyFile(bodyFile)));
     }
 
     /**
-     * A page in the shape of the recorded fixtures: {@code count} postings numbered from
-     * {@code offset}, with requisition IDs {@code R<n>}, and the given {@code total}.
+     * Stubs one posting's detail endpoint, {@code /wday/cxs/{tenant}/{site}{externalPath}}, with
+     * the given body (see {@link WorkdayPages#detail}).
      */
-    protected static String jobsPage(int total, int offset, int count) {
-        List<String> postings = new ArrayList<>();
-        for (int n = offset; n < offset + count; n++) {
-            postings.add(
-                    """
-                    {"title":"Engineer %d","externalPath":"/job/Regina-SK/Engineer-%d_R%d",\
-                    "locationsText":"Regina, SK","postedOn":"Posted 30+ Days Ago",\
-                    "bulletFields":["R%d"]}"""
-                            .formatted(n, n, n, n));
-        }
-        return page(total, postings);
+    protected static void stubDetail(String detailPath, String body) {
+        workday.stubFor(get(urlEqualTo(detailPath)).willReturn(okJson(body)));
     }
 
-    /** One field of every element of a JSON array, as text; a missing field reads as empty. */
+    /**
+     * One field of every element of a JSON array, as text; a JSON null is a Java null and a missing
+     * field reads as empty.
+     */
     protected static List<String> texts(JsonNode array, String field) {
-        return values(array, field, JsonNode::asText);
+        return values(array, field, node -> node.isNull() ? null : node.asText());
     }
 
     /** One field of every element of a JSON array, as a long. */

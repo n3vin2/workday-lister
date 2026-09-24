@@ -1,10 +1,11 @@
-// The Roster API: GET /api/companies, GET /api/companies/:id, POST /api/companies/:id/retry and
-// POST /api/roster.
+// The Roster API: GET /api/companies, GET /api/companies/:id?scope=...,
+// POST /api/companies/:id/retry and POST /api/roster.
 
 /**
- * The current Roster, sorted by name: every Company with its id, name, status, Open posting count,
- * last scraped time (null until scraped), truncated flag, and the error reason when its status is
- * FAILED (null otherwise).
+ * The current Roster as the Roster screen lists it, by today's count descending and then by name:
+ * every Company with its id, name, status, today's count, Open posting count, last scraped time
+ * (null until scraped), truncated flag, and the error reason when its status is FAILED (null
+ * otherwise).
  */
 export async function listCompanies() {
   const response = await fetch('/api/companies')
@@ -13,12 +14,14 @@ export async function listCompanies() {
 }
 
 /**
- * One Company with the same header as its Roster row plus its Open postings, and its Closed ones
- * too when {@code includeClosed} is set. Resolves to {@code { ok: true, company }}, or
- * {@code { ok: false }} when no Company has that id.
+ * One Company with the same header as its Roster row plus the postings of the given scope: its
+ * Today's Postings for 'today' (the default), every Open posting for 'all', and the Closed ones
+ * among them too when {@code includeClosed} is set. Each posting carries its Posting Date when a
+ * run has fetched one (null otherwise) and its state. Resolves to {@code { ok: true, company }},
+ * or {@code { ok: false }} when no Company has that id.
  */
-export async function getCompany(id, { includeClosed = false } = {}) {
-  const query = includeClosed ? '?includeClosed=true' : ''
+export async function getCompany(id, { scope = 'today', includeClosed = false } = {}) {
+  const query = `?scope=${scope}${includeClosed ? '&includeClosed=true' : ''}`
   const response = await fetch(`/api/companies/${id}${query}`)
   if (response.status === 404) return { ok: false }
   if (!response.ok) throw new Error(`Loading the Company failed with HTTP ${response.status}`)
