@@ -21,9 +21,8 @@ import org.hibernate.annotations.DynamicUpdate;
  * <p>The status, last scraped time, Open posting count, truncated flag and error message are what
  * the latest Scrape Run left behind, denormalised here so the Roster screen needs no join
  * ({@code V3__scrape_run_and_job_posting.sql}, {@code V6__error_message.sql}). A Roster upload and
- * a Scrape Run may touch the same
- * row at the same time, the upload its name and URL and the run its results, so updates write only
- * the columns that changed rather than the whole row.
+ * a Scrape Run may touch the same row at the same time, the upload its name and URL and the run
+ * its results, so updates write only the columns that changed rather than the whole row.
  */
 @Entity
 @Table(name = "company")
@@ -31,8 +30,8 @@ import org.hibernate.annotations.DynamicUpdate;
 public class Company {
 
     /**
-     * Width of the {@code error_message} columns ({@code V6__error_message.sql}); a longer reason
-     * is cut to fit before it is recorded.
+     * Width of the {@code error_message} columns ({@code V6__error_message.sql});
+     * {@link #fitErrorMessage} cuts a longer reason to fit.
      */
     public static final int ERROR_MESSAGE_LENGTH = 512;
 
@@ -102,12 +101,20 @@ public class Company {
     }
 
     /**
-     * A Scrape Run could not read this Company's Career Site, for the given reason: nothing was
-     * applied, so the postings, count and last scraped time are still the previous run's.
+     * A Scrape Run could not read this Company's Career Site, for the given reason, cut to fit the
+     * column: nothing was applied, so the postings, count and last scraped time are still the
+     * previous run's.
      */
     public void failScrape(String reason) {
         this.status = CompanyStatus.FAILED;
-        this.errorMessage = reason;
+        this.errorMessage = fitErrorMessage(reason);
+    }
+
+    /** The reason, cut to the width of the {@code error_message} columns. */
+    public static String fitErrorMessage(String reason) {
+        return reason.length() > ERROR_MESSAGE_LENGTH
+                ? reason.substring(0, ERROR_MESSAGE_LENGTH)
+                : reason;
     }
 
     /**

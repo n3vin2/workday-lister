@@ -21,11 +21,15 @@ The set of Companies the user is currently tracking, loaded from the uploaded CS
 _Avoid_: Company list, watchlist, CSV
 
 **Scrape Run**:
-One pass over the whole Roster that fetches every Job Posting from every Career Site, one Company at a time. Has per-Company status.
+One pass that fetches every Job Posting from every Career Site it covers, one Company at a time: the whole Roster, or one Company for a Retry. Has per-Company status, and ends succeeded, partially failed (at least one Company failed), or cancelled.
 _Avoid_: Scrape, crawl, job, sync, refresh
 
+**Retry**:
+A Scrape Run over just one Company, asked for from the Roster screen when that Company failed. Follows the same one-run-at-a-time rule as a full run.
+_Avoid_: Rerun, rescrape, re-run one Company
+
 **Company Outcome**:
-What one Scrape Run did with one Company: when it started and finished reading the Career Site, how many Job Postings it saw, whether the list was truncated, and its status.
+What one Scrape Run did with one Company: when it started and finished reading the Career Site, how many Job Postings it saw, whether the list was truncated, its status, and why it failed if it did.
 _Avoid_: Result, run item, per-Company status row
 
 ## Posting lifecycle

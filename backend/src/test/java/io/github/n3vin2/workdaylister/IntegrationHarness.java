@@ -12,8 +12,12 @@ import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.extension.ResponseDefinitionTransformerV2;
 import com.github.tomakehurst.wiremock.http.ResponseDefinition;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
+import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -226,5 +230,22 @@ public abstract class IntegrationHarness {
     /** {@code GET /api/companies}: the Roster as the Roster screen lists it. */
     protected JsonNode companies() {
         return api.getForObject("/api/companies", JsonNode.class);
+    }
+
+    /**
+     * The time between consecutive requests, in the order the stub received them. A lower bound on
+     * a gap is the one timing a test may assert on: the client's wait guarantees it.
+     */
+    protected static List<Duration> gaps(List<LoggedRequest> requests) {
+        List<Instant> received =
+                requests.stream()
+                        .map(request -> request.getLoggedDate().toInstant())
+                        .sorted()
+                        .toList();
+        List<Duration> gaps = new ArrayList<>();
+        for (int i = 1; i < received.size(); i++) {
+            gaps.add(Duration.between(received.get(i - 1), received.get(i)));
+        }
+        return gaps;
     }
 }

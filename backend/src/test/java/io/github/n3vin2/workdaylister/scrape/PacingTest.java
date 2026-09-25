@@ -13,7 +13,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import io.github.n3vin2.workdaylister.IntegrationHarness;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -116,20 +115,6 @@ class PacingTest extends IntegrationHarness {
         }
         return "{\"total\":%d,\"jobPostings\":[%s],\"userAuthenticated\":false}"
                 .formatted(total, String.join(",", postings));
-    }
-
-    /** The time between consecutive requests, in the order the stub received them. */
-    private static List<Duration> gaps(List<LoggedRequest> requests) {
-        List<Instant> received =
-                requests.stream()
-                        .map(request -> request.getLoggedDate().toInstant())
-                        .sorted()
-                        .toList();
-        List<Duration> gaps = new ArrayList<>();
-        for (int i = 1; i < received.size(); i++) {
-            gaps.add(Duration.between(received.get(i - 1), received.get(i)));
-        }
-        return gaps;
     }
 
     private static List<String> texts(JsonNode array, String field) {

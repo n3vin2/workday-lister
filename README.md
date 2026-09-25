@@ -77,7 +77,8 @@ as a `Retry-After` header asks when that is longer. A Company whose Career Site 
 read after the last retry, cannot be reached at all, or answers with any other error status is
 marked failed with a short reason, and the run moves on to the next Company and finishes partially
 failed. The Roster screen shows the reason under the failed status and offers Retry, a run over just
-that Company under the same one-run-at-a-time rule as a full run.
+that Company under the same one-run-at-a-time rule as a full run. Cancel takes effect at the run's
+next check between Companies or pages, so a wait in progress finishes first.
 
 | Endpoint | What |
 | --- | --- |

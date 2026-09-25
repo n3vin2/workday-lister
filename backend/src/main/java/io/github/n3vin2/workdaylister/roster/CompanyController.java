@@ -4,6 +4,7 @@ import io.github.n3vin2.workdaylister.scrape.JobPosting;
 import io.github.n3vin2.workdaylister.scrape.JobPostingService;
 import io.github.n3vin2.workdaylister.scrape.PostingSummary;
 import io.github.n3vin2.workdaylister.scrape.RunSummary;
+import io.github.n3vin2.workdaylister.scrape.ScrapeRun;
 import io.github.n3vin2.workdaylister.scrape.ScrapeRunService;
 import java.util.List;
 import java.util.Optional;
@@ -64,16 +65,14 @@ class CompanyController {
         try {
             return scrapeRunService
                     .retry(id)
-                    .<ResponseEntity<?>>map(
-                            run ->
-                                    ResponseEntity.accepted()
-                                            .body(
-                                                    RunSummary.of(
-                                                            run,
-                                                            scrapeRunService.outcomesOf(run))))
+                    .<ResponseEntity<?>>map(run -> ResponseEntity.accepted().body(summary(run)))
                     .orElseGet(() -> ResponseEntity.notFound().build());
         } catch (ScrapeRunService.RunActiveException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(new NotRetried(e.getMessage()));
         }
+    }
+
+    private RunSummary summary(ScrapeRun run) {
+        return RunSummary.of(run, scrapeRunService.outcomesOf(run));
     }
 }

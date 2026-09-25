@@ -47,9 +47,6 @@ class ScrapeRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ScrapeRunner.class);
 
-    /** The reason recorded when something other than a Workday request fails a Company. */
-    private static final String UNEXPECTED_ERROR = "Unexpected error: ";
-
     private final ScrapeRecorder recorder;
     private final WorkdayClient workday;
 
@@ -136,7 +133,7 @@ class ScrapeRunner {
                             listed -> recorder.record(outcomeId, listed),
                             () -> recorder.cancelCompany(outcomeId));
         } catch (WorkdayClient.RequestFailedException e) {
-            log.warn(
+            log.info(
                     "Scrape Run {}: Company outcome {} failed: {}",
                     run.id,
                     outcomeId,
@@ -144,7 +141,7 @@ class ScrapeRunner {
             recorder.fail(outcomeId, e.getMessage());
         } catch (RuntimeException e) {
             log.error("Scrape Run {}: Company outcome {} failed", run.id, outcomeId, e);
-            recorder.fail(outcomeId, UNEXPECTED_ERROR + e);
+            recorder.fail(outcomeId, "Unexpected error; see the backend log");
         }
     }
 

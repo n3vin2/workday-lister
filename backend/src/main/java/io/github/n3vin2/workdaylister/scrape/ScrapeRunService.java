@@ -63,9 +63,7 @@ public class ScrapeRunService {
      * @throws RunActiveException when a run is active, before {@code beforeStart} has run
      */
     public synchronized Optional<ScrapeRun> start(Runnable beforeStart) {
-        if (runner.activeRun().isPresent()) {
-            throw new RunActiveException();
-        }
+        requireIdle();
         beforeStart.run();
         return launch(recorder.open());
     }
@@ -78,10 +76,15 @@ public class ScrapeRunService {
      * @throws RunActiveException when a run is active
      */
     public synchronized Optional<ScrapeRun> retry(long companyId) {
+        requireIdle();
+        return launch(recorder.openFor(companyId));
+    }
+
+    /** The one-run-at-a-time rule: nothing starts while the runner is busy. */
+    private void requireIdle() {
         if (runner.activeRun().isPresent()) {
             throw new RunActiveException();
         }
-        return launch(recorder.openFor(companyId));
     }
 
     private Optional<ScrapeRun> launch(Optional<ScrapeRun> opened) {

@@ -78,11 +78,17 @@ export default function RosterPage() {
     }
   }, [polling])
 
-  /** A refused start or upload means a run this screen did not know about is active: show it. */
+  /**
+   * A refused start, upload or Retry means the screen is out of date: a run it did not know about
+   * is active, or a Company is gone. Show why, and reload the run and the Roster.
+   */
   function showRefusal(message) {
     setRefusal(message)
-    getCurrentRun()
-      .then((current) => setActiveRun(current.ok ? current.run : null))
+    loadRunThenRoster()
+      .then(({ run, roster }) => {
+        setActiveRun(run)
+        setCompanies(roster)
+      })
       .catch(() => setLoadFailed(true))
   }
 
@@ -101,11 +107,6 @@ export default function RosterPage() {
   }
 
   function handleStarted(run) {
-    setActiveRun(run)
-    setRefusal(null)
-  }
-
-  function handleRetried(run) {
     setActiveRun(run)
     setRefusal(null)
   }
@@ -145,7 +146,7 @@ export default function RosterPage() {
           <CompanyTable
             companies={companies}
             run={activeRun}
-            onRetried={handleRetried}
+            onRetried={handleStarted}
             onRetryRefused={showRefusal}
           />
         ))}
@@ -333,7 +334,8 @@ function EmptyRoster() {
  * Company shows the reason under its status and, while no run is active, a Retry button.
  */
 function CompanyTable({ companies, run, onRetried, onRetryRefused }) {
-  function statusOf(company) {
+  /** Where the active run is with the Company, or, when none is, what the latest run left. */
+  function stateOf(company) {
     const outcome = run?.outcomes.find((candidate) => candidate.companyId === company.id)
     return outcome ?? company
   }
@@ -353,7 +355,7 @@ function CompanyTable({ companies, run, onRetried, onRetryRefused }) {
       </thead>
       <tbody>
         {companies.map((company) => {
-          const { status, errorMessage } = statusOf(company)
+          const { status, errorMessage } = stateOf(company)
           return (
             <tr key={company.id} className="border-b border-gray-100">
               <td className="py-2 pr-4 font-medium">
@@ -401,6 +403,8 @@ function RetryButton({ company, onRetried, onRefused }) {
   const [retrying, setRetrying] = useState(false)
   const [failure, setFailure] = useState(null)
 
+  const couldNotRetry = (why) => `Could not retry ${company.name}: ${why}`
+
   async function handleClick() {
     setRetrying(true)
     setFailure(null)
@@ -409,9 +413,9 @@ function RetryButton({ company, onRetried, onRefused }) {
       if (result.ok) {
         onRetried(result.run)
       } else if (result.reason) {
-        onRefused(`Could not retry ${company.name}: ${result.reason}`)
+        onRefused(couldNotRetry(result.reason))
       } else {
-        onRefused(`Could not retry ${company.name}: it is no longer in the Roster`)
+        onRefused(couldNotRetry('it is no longer in the Roster'))
       }
     } catch (error) {
       setFailure(error.message)
@@ -432,7 +436,7 @@ function RetryButton({ company, onRetried, onRefused }) {
       </button>
       {failure && (
         <p role="alert" className="mt-1 text-xs text-red-800">
-          Could not retry {company.name}: {failure}
+          {couldNotRetry(failure)}
         </p>
       )}
     </>

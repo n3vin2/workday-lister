@@ -26,6 +26,6 @@ management:
 
 # Scrape Run tunables (scraper.pacing-interval, scraper.retry-count, scraper.retry-backoff,
 # scraper.timezone) and the Workday client endpoint (workday.client.scheme, workday.client.host;
-# ADR-0001) have their defaults
-# on the records in io.github.n3vin2.workdaylister.config. Override them with environment variables
-# such as SCRAPER_PACING_INTERVAL or WORKDAY_CLIENT_HOST; see README.md.
+# ADR-0001) have their defaults on the records in io.github.n3vin2.workdaylister.config. Override
+# them with environment variables such as SCRAPER_PACING_INTERVAL or WORKDAY_CLIENT_HOST; see
+# README.md.

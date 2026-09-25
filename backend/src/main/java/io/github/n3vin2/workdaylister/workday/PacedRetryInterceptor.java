@@ -24,7 +24,8 @@ import org.springframework.http.client.ClientHttpResponse;
  * {@link WorkdayClient.RequestFailedException} carrying the short reason the Roster screen shows.
  *
  * <p>Requests come from the one Scrape Run thread, one after another, which is what lets the pacing
- * state be a plain field.
+ * state be a plain field. A cancel request does not cut a wait short: the run notices it at its
+ * next check, once the wait and the request it delays are over.
  */
 final class PacedRetryInterceptor implements ClientHttpRequestInterceptor {
 

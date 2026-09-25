@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router'
 import { afterEach, expect, test, vi } from 'vitest'
@@ -511,4 +511,25 @@ test('a refused Retry says a run is in progress and shows that run', async () =>
     `Could not retry Acme: ${RUN_IN_PROGRESS}`,
   )
   expect(await screen.findByText(/1 of 2 companies done/i)).toBeInTheDocument()
+})
+
+test('a Retry of a Company that is no longer in the Roster says so and reloads the Roster', async () => {
+  let rosterLoads = 0
+  server.use(
+    http.get('/api/companies', () => {
+      rosterLoads += 1
+      return HttpResponse.json(rosterLoads === 1 ? [acmeFailed, nvidia] : [nvidia])
+    }),
+    http.post('/api/companies/:id/retry', () => new HttpResponse(null, { status: 404 })),
+  )
+  renderRoster()
+  const row = await screen.findByRole('row', { name: /failed/i })
+
+  fireEvent.click(within(row).getByRole('button', { name: /retry/i }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Could not retry Acme: it is no longer in the Roster',
+  )
+  await waitFor(() => expect(screen.queryByRole('link', { name: 'Acme' })).not.toBeInTheDocument())
+  expect(screen.getByRole('link', { name: 'NVIDIA' })).toBeInTheDocument()
 })

@@ -7,17 +7,20 @@ import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.serverError;
+import static com.github.tomakehurst.wiremock.client.WireMock.serviceUnavailable;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.stubbing.Scenario.STARTED;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import io.github.n3vin2.workdaylister.IntegrationHarness;
 import io.github.n3vin2.workdaylister.PinnedClockConfig;
 import java.time.Duration;
-import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -96,17 +99,7 @@ class FailedCompanyTest extends IntegrationHarness {
 
     @Test
     void aThrottledRequestIsRetriedOnceRetryAfterAllowsAndTheCompanySucceeds() {
-        workday.stubFor(
-                post(urlEqualTo(ACME_JOBS))
-                        .inScenario("throttled")
-                        .whenScenarioStateIs(STARTED)
-                        .willReturn(aResponse().withStatus(429).withHeader("Retry-After", "1"))
-                        .willSetStateTo("recovered"));
-        workday.stubFor(
-                post(urlEqualTo(ACME_JOBS))
-                        .inScenario("throttled")
-                        .whenScenarioStateIs("recovered")
-                        .willReturn(okJson(jobsPage(1, 0, 1))));
+        stubFailingOnce(ACME_JOBS, aResponse().withStatus(429).withHeader("Retry-After", "1"));
 
         long runId = uploadAndAwaitRun(ACME_ONLY);
 
@@ -115,6 +108,23 @@ class FailedCompanyTest extends IntegrationHarness {
         assertThat(texts(roster, "status")).containsExactly("SUCCEEDED");
         assertThat(roster.get(0).path("errorMessage").isNull()).isTrue();
         assertThat(ints(roster, "openCount")).containsExactly(1);
+        List<LoggedRequest> requests = workday.findAll(postRequestedFor(urlEqualTo(ACME_JOBS)));
+        assertThat(requests).hasSize(2);
+        assertThat(gaps(requests))
+                .allSatisfy(gap -> assertThat(gap).isGreaterThanOrEqualTo(Duration.ofSeconds(1)));
+    }
+
+    @Test
+    void aRetryAfterDateIsHonouredAgainstTheApplicationClock() {
+        String oneSecondAfterNow =
+                DateTimeFormatter.RFC_1123_DATE_TIME.format(
+                        PinnedClockConfig.PINNED_NOW.plusSeconds(1).atZone(ZoneOffset.UTC));
+        stubFailingOnce(
+                ACME_JOBS, serviceUnavailable().withHeader("Retry-After", oneSecondAfterNow));
+
+        long runId = uploadAndAwaitRun(ACME_ONLY);
+
+        assertThat(run(runId).path("status").asText()).isEqualTo("SUCCEEDED");
         List<LoggedRequest> requests = workday.findAll(postRequestedFor(urlEqualTo(ACME_JOBS)));
         assertThat(requests).hasSize(2);
         assertThat(gaps(requests))
@@ -204,6 +214,24 @@ class FailedCompanyTest extends IntegrationHarness {
         return runId;
     }
 
+    /**
+     * Stubs a Career Site's jobs endpoint to answer the given error once and a one-posting page
+     * from then on.
+     */
+    private static void stubFailingOnce(String jobsPath, ResponseDefinitionBuilder error) {
+        workday.stubFor(
+                post(urlEqualTo(jobsPath))
+                        .inScenario(jobsPath)
+                        .whenScenarioStateIs(STARTED)
+                        .willReturn(error)
+                        .willSetStateTo("recovered"));
+        workday.stubFor(
+                post(urlEqualTo(jobsPath))
+                        .inScenario(jobsPath)
+                        .whenScenarioStateIs("recovered")
+                        .willReturn(okJson(jobsPage(1, 0, 1))));
+    }
+
     /** Stubs one page of a Career Site's jobs endpoint, matched on the requested offset. */
     private static void stubJobs(String jobsPath, int offset, String body) {
         workday.stubFor(
@@ -228,20 +256,6 @@ class FailedCompanyTest extends IntegrationHarness {
         }
         return "{\"total\":%d,\"jobPostings\":[%s],\"userAuthenticated\":false}"
                 .formatted(total, String.join(",", postings));
-    }
-
-    /** The time between consecutive requests, in the order the stub received them. */
-    private static List<Duration> gaps(List<LoggedRequest> requests) {
-        List<Instant> received =
-                requests.stream()
-                        .map(request -> request.getLoggedDate().toInstant())
-                        .sorted()
-                        .toList();
-        List<Duration> gaps = new ArrayList<>();
-        for (int i = 1; i < received.size(); i++) {
-            gaps.add(Duration.between(received.get(i - 1), received.get(i)));
-        }
-        return gaps;
     }
 
     private static List<String> texts(JsonNode array, String field) {

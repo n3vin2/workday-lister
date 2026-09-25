@@ -62,12 +62,13 @@ class ScrapeRecorder {
         return open(companies.findById(companyId).stream().toList());
     }
 
-    private Optional<ScrapeRun> open(List<Company> over) {
-        if (over.isEmpty()) {
+    private Optional<ScrapeRun> open(List<Company> toVisit) {
+        if (toVisit.isEmpty()) {
             return Optional.empty();
         }
         ScrapeRun run = runs.save(new ScrapeRun(Instant.now(clock)));
-        outcomes.saveAll(over.stream().map(company -> new CompanyOutcome(run, company)).toList());
+        outcomes.saveAll(
+                toVisit.stream().map(company -> new CompanyOutcome(run, company)).toList());
         return Optional.of(run);
     }
 
@@ -137,18 +138,14 @@ class ScrapeRecorder {
 
     /**
      * The Company's Career Site could not be read, for the given reason: the outcome and the
-     * Company are marked failed with it, cut to fit the column, and nothing is applied, so
-     * the Company keeps the previous run's postings, count and last scraped time.
+     * Company are marked failed with it, and nothing is applied, so the Company keeps the previous
+     * run's postings, count and last scraped time.
      */
     @Transactional
     public void fail(long outcomeId, String reason) {
         CompanyOutcome outcome = outcomes.findById(outcomeId).orElseThrow();
-        String shortReason =
-                reason.length() > Company.ERROR_MESSAGE_LENGTH
-                        ? reason.substring(0, Company.ERROR_MESSAGE_LENGTH)
-                        : reason;
-        outcome.fail(Instant.now(clock), shortReason);
-        outcome.getCompany().failScrape(shortReason);
+        outcome.fail(Instant.now(clock), reason);
+        outcome.getCompany().failScrape(reason);
     }
 
     /** Every Company has been visited; the run partially failed if any of them failed. */

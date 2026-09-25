@@ -79,11 +79,14 @@ public class CompanyOutcome {
         this.truncated = truncated;
     }
 
-    /** The Career Site could not be read, for the given reason; nothing it listed is stored. */
+    /**
+     * The Career Site could not be read, for the given reason, cut to fit the column; nothing it
+     * listed is stored.
+     */
     void fail(Instant at, String reason) {
         this.status = OutcomeStatus.FAILED;
         this.finishedAt = at;
-        this.errorMessage = reason;
+        this.errorMessage = Company.fitErrorMessage(reason);
     }
 
     /** The run was cancelled before it was done with this Company; nothing it listed is stored. */
