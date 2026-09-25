@@ -47,7 +47,9 @@ import org.testcontainers.containers.MySQLContainer;
 /**
  * Base class for backend integration tests: the full Spring context against a Testcontainers
  * MySQL, with a WireMock server standing in for every Workday Career Site, request pacing and
- * retry backoff set to zero, and the clock pinned to {@link PinnedClockConfig#PINNED_NOW}.
+ * retry backoff set to zero (the retry count stays at its default, so a request that keeps
+ * failing is sent {@link #ATTEMPTS} times), and the clock pinned to
+ * {@link PinnedClockConfig#PINNED_NOW}.
  *
  * <p>Tests drive the application only through its HTTP API ({@link #api}) and the Workday stub
  * ({@link #workday}). The MySQL container and the stub server are started once per JVM and shared
@@ -118,6 +120,9 @@ public abstract class IntegrationHarness {
      * {@link PinnedClockConfig#PINNED_TODAY}, so a posting is today's only when a test says so.
      */
     protected static final LocalDate FALLBACK_POSTING_DATE = LocalDate.of(2000, 1, 1);
+
+    /** The configured retry count is 3, so a request that keeps failing is sent four times. */
+    protected static final int ATTEMPTS = 4;
 
     /** Lower priority than WireMock's default of 5, so a test's own stubs win over the fallback. */
     private static final int FALLBACK_PRIORITY = 10;

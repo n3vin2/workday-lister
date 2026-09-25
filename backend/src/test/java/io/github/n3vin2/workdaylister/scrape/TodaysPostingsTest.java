@@ -1,6 +1,10 @@
 package io.github.n3vin2.workdaylister.scrape;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.notFound;
+import static com.github.tomakehurst.wiremock.client.WireMock.serverError;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlMatching;
 import static io.github.n3vin2.workdaylister.PinnedClockConfig.PINNED_TODAY;
 import static io.github.n3vin2.workdaylister.WorkdayPages.POSTED_LONG_AGO;
@@ -23,9 +27,9 @@ import org.springframework.http.ResponseEntity;
 
 /**
  * Today's Postings (ADR-0002): which postings a Scrape Run fetches a detail for, the Posting Date
- * it stores, and how {@code GET /api/companies} and {@code GET /api/companies/{id}?scope=...}
- * report today's, against a stubbed Workday and a clock pinned to
- * {@link io.github.n3vin2.workdaylister.PinnedClockConfig#PINNED_TODAY}.
+ * it stores, what it stores when a detail cannot be read, and how {@code GET /api/companies} and
+ * {@code GET /api/companies/{id}?scope=...} report today's, against a stubbed Workday and a clock
+ * pinned to {@link io.github.n3vin2.workdaylister.PinnedClockConfig#PINNED_TODAY}.
  */
 class TodaysPostingsTest extends IntegrationHarness {
 
@@ -224,5 +228,66 @@ class TodaysPostingsTest extends IntegrationHarness {
         JsonNode allWithClosed = company(acmeId, "all", true).path("postings");
         assertThat(texts(allWithClosed, "requisitionId")).containsExactly("R1", "R2");
         assertThat(texts(allWithClosed, "state")).containsExactly("CLOSED", "OPEN");
+    }
+
+    @Test
+    void aDetailThatCannotBeReadStoresThePostingWithoutAPostingDateAndTheCompanySucceeds() {
+        stubJobs(
+                ACME_JOBS,
+                0,
+                postings(
+                        listing("Accountant", ACCOUNTANT_PATH, "Regina, SK", POSTED_TODAY),
+                        listing("Clerk", CLERK_PATH, "Regina, SK", POSTED_YESTERDAY),
+                        listing("Engineer", ENGINEER_PATH, "Regina, SK", POSTED_TODAY),
+                        listing("Zebra Keeper", ZEBRA_KEEPER_PATH, "Regina, SK", POSTED_LONG_AGO)));
+        workday.stubFor(get(urlEqualTo(ACME_SITE + ACCOUNTANT_PATH)).willReturn(serverError()));
+        stubDetail(ACME_SITE + CLERK_PATH, detail(PINNED_TODAY.minusDays(1)));
+        workday.stubFor(get(urlEqualTo(ACME_SITE + ENGINEER_PATH)).willReturn(notFound()));
+
+        long runId = uploadAndAwaitRun(ACME_ONLY);
+
+        JsonNode run = run(runId);
+        assertThat(run.path("status").asText()).isEqualTo("SUCCEEDED");
+        assertThat(texts(run.path("outcomes"), "status")).containsExactly("SUCCEEDED");
+        assertThat(ints(run.path("outcomes"), "postingsSeen")).containsExactly(4);
+        JsonNode roster = companies();
+        assertThat(texts(roster, "status")).containsExactly("SUCCEEDED");
+        assertThat(roster.get(0).path("errorMessage").isNull()).isTrue();
+        assertThat(ints(roster, "openCount")).containsExactly(4);
+        assertThat(ints(roster, "todayCount")).containsExactly(0);
+        long acmeId = roster.get(0).path("id").asLong();
+        assertThat(company(acmeId, "today").path("postings")).isEmpty();
+        JsonNode postings = company(acmeId, "all").path("postings");
+        assertThat(texts(postings, "requisitionId")).containsExactly("R1", "R2", "R3", "R4");
+        assertThat(texts(postings, "postingDate")).containsExactly(null, "2026-09-20", null, null);
+        assertThat(texts(postings, "postedOnLabel"))
+                .containsExactly(POSTED_TODAY, POSTED_YESTERDAY, POSTED_TODAY, POSTED_LONG_AGO);
+        assertThat(workday.findAll(getRequestedFor(urlEqualTo(ACME_SITE + ACCOUNTANT_PATH))))
+                .hasSize(ATTEMPTS);
+        assertThat(workday.findAll(getRequestedFor(urlEqualTo(ACME_SITE + ENGINEER_PATH))))
+                .hasSize(1);
+    }
+
+    @Test
+    void aDetailThatCannotBeReadKeepsThePostingDateAnEarlierRunStored() {
+        stubJobs(
+                ACME_JOBS,
+                0,
+                postings(listing("Accountant", ACCOUNTANT_PATH, "Regina, SK", POSTED_TODAY)));
+        stubDetail(ACME_SITE + ACCOUNTANT_PATH, detail(PINNED_TODAY));
+        uploadAndAwaitRun(ACME_ONLY);
+        long acmeId = companies().get(0).path("id").asLong();
+        workday.stubFor(get(urlEqualTo(ACME_SITE + ACCOUNTANT_PATH)).willReturn(serverError()));
+
+        long runId = startAndAwaitRun();
+
+        assertThat(run(runId).path("status").asText()).isEqualTo("SUCCEEDED");
+        JsonNode today = company(acmeId, "today");
+        assertThat(today.path("todayCount").asInt()).isEqualTo(1);
+        assertThat(texts(today.path("postings"), "requisitionId")).containsExactly("R1");
+        assertThat(texts(today.path("postings"), "postingDate")).containsExactly("2026-09-21");
+        assertThat(ints(companies(), "todayCount")).containsExactly(1);
+        assertThat(workday.findAll(getRequestedFor(urlEqualTo(ACME_SITE + ACCOUNTANT_PATH))))
+                .hasSize(1 + ATTEMPTS);
     }
 }

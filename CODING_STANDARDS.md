@@ -27,7 +27,7 @@ Nothing here is enforced by tooling: there is no Prettier or ESLint config, no C
 - **Configuration has a default and an environment override.** Backend tunables are `@ConfigurationProperties` records with `@DefaultValue`, listed in the README's Configuration table. The frontend has no environment variables: it calls `/api` relatively and Vite proxies it.
 - **Constants are named when something else depends on their value**: database column widths, user-facing messages that tests assert on, shared suffixes. Small one-off literals stay inline.
 - **Tests are part of every change.** Backend behaviour is tested through the HTTP API against a real MySQL; frontend behaviour through the rendered screen against a mocked `/api`. See each section.
-- **Logging.** SLF4J via a `private static final Logger log = LoggerFactory.getLogger(...)` in Java (`ScrapeRunner`), `console.*` in the frontend. `error` for what needs a human, `info` for what is expected but worth a trace.
+- **Logging.** SLF4J via a `private static final Logger log = LoggerFactory.getLogger(...)` in Java (`ScrapeRunner`), `console.*` in the frontend. `error` for what needs a human, `warn` for what degrades a result without failing it (a posting's detail that could not be read), `info` for what is expected but worth a trace.
 
 ---
 

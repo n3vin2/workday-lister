@@ -27,8 +27,9 @@ import java.time.LocalDate;
  *
  * <p>The Posting Date is the calendar date Workday says the posting went live
  * ({@code V8__posting_date.sql}). A run learns it only for postings labelled "Posted Today" or
- * "Posted Yesterday" (ADR-0002), and once known it is kept: a later sighting under another label
- * says nothing new about when the posting went live.
+ * "Posted Yesterday" (ADR-0002) whose detail it could read, and once known it is kept: a later
+ * sighting under another label, or whose detail could not be read, says nothing new about when
+ * the posting went live.
  */
 @Entity
 @Table(name = "job_posting")
@@ -89,7 +90,8 @@ public class JobPosting {
 
     /**
      * The given run has listed this posting (again): refresh what Workday shows and Last Seen, and
-     * reopen it if it was Closed, and keep the Posting Date when this sighting fetched one.
+     * reopen it if it was Closed. The Posting Date is taken when this sighting fetched one and
+     * kept as it was otherwise, whether the run never asked or the detail could not be read.
      */
     void seen(ScrapedPosting scraped, ScrapeRun run) {
         WorkdayPosting listing = scraped.posting();

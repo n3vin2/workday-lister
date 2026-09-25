@@ -61,9 +61,6 @@ class FailedCompanyTest extends IntegrationHarness {
     private static final String RUN_IN_PROGRESS =
             "A Scrape Run is in progress; wait for it to finish or cancel it";
 
-    /** The configured retry count is 3, so a request that keeps failing is sent four times. */
-    private static final int ATTEMPTS = 4;
-
     @Test
     void aCompanyWhoseListRequestFailsAfterTheLastRetryIsMarkedFailedAndTheRunContinues() {
         workday.stubFor(post(urlEqualTo(ACME_JOBS)).willReturn(serverError()));

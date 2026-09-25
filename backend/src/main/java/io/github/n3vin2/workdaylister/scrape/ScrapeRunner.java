@@ -33,6 +33,13 @@ import org.springframework.stereotype.Component;
  * <p>A Company whose Career Site cannot be read, once the Workday client has retried what it will,
  * is marked failed with the reason and the run moves on to the next, so one bad Career Site does
  * not cost the rest; the run then finishes partially failed. Pacing and retry are the client's.
+ *
+ * <p>A posting's detail that cannot be read, once the client has retried what it will, costs
+ * the Company nothing but that posting's Posting Date: the posting is stored from its listing
+ * with none (keeping any an earlier run stored), the failure is logged with the run, the
+ * Company Outcome and the posting's URL, and the Company succeeds. Without a Posting Date the
+ * posting is not one of Today's Postings; the next run asks for the detail again while Workday
+ * still labels the posting "Posted Today" or "Posted Yesterday".
  */
 @Component
 class ScrapeRunner {
@@ -133,7 +140,7 @@ class ScrapeRunner {
     private void scrape(ActiveRun run, long outcomeId) {
         try {
             CareerSite site = recorder.begin(outcomeId);
-            readCareerSite(run, site)
+            readCareerSite(run, outcomeId, site)
                     .ifPresentOrElse(
                             listed -> recorder.record(outcomeId, listed),
                             () -> recorder.cancelCompany(outcomeId));
@@ -161,7 +168,8 @@ class ScrapeRunner {
      * <p>Empty when cancellation was requested before a page or a detail was read: the Career
      * Site's listing is then incomplete and none of it is to be applied.
      */
-    private Optional<CareerSitePostings> readCareerSite(ActiveRun run, CareerSite site) {
+    private Optional<CareerSitePostings> readCareerSite(
+            ActiveRun run, long outcomeId, CareerSite site) {
         List<WorkdayPosting> postings = new ArrayList<>();
         int total = 0;
         int offset = 0;
@@ -180,18 +188,19 @@ class ScrapeRunner {
                 && offset < total
                 && offset < WorkdayClient.MAX_POSTINGS);
         boolean truncated = total >= WorkdayClient.MAX_POSTINGS;
-        return withPostingDates(run, site, postings)
+        return withPostingDates(run, outcomeId, site, postings)
                 .map(scraped -> new CareerSitePostings(scraped, truncated));
     }
 
     /**
-     * The listed postings, each with its Posting Date where its label warrants a detail request. A
-     * posting Workday lists twice across pages (its paging shifts as postings appear) is kept once,
-     * so it costs at most one request. Empty when cancellation was requested before a detail was
-     * read: the flag is checked before each detail request as it is before each page.
+     * The listed postings, each with its Posting Date where its label warrants a detail request
+     * and the detail could be read. A posting Workday lists twice across pages (its paging shifts
+     * as postings appear) is kept once, so it costs at most one request. Empty when cancellation
+     * was requested before a detail was read: the flag is checked before each detail request as
+     * it is before each page.
      */
     private Optional<List<ScrapedPosting>> withPostingDates(
-            ActiveRun run, CareerSite site, List<WorkdayPosting> listed) {
+            ActiveRun run, long outcomeId, CareerSite site, List<WorkdayPosting> listed) {
         Map<String, WorkdayPosting> distinct = new LinkedHashMap<>();
         for (WorkdayPosting posting : listed) {
             distinct.putIfAbsent(posting.requisitionId(), posting);
@@ -201,21 +210,40 @@ class ScrapeRunner {
             if (run.cancelRequested && posting.postedTodayOrYesterday()) {
                 return Optional.empty();
             }
-            scraped.add(new ScrapedPosting(posting, postingDateOf(site, posting)));
+            scraped.add(
+                    new ScrapedPosting(posting, postingDateOf(run, outcomeId, site, posting)));
         }
         return Optional.of(scraped);
     }
 
     /**
      * The Posting Date of a posting labelled "Posted Today" or "Posted Yesterday", from its detail;
-     * {@code null} for any other label, which costs no request (ADR-0002). A detail that cannot be
-     * read fails the Company like a page that cannot be read; storing the posting without a date
-     * instead is #9.
+     * {@code null} for any other label, which costs no request (ADR-0002), and {@code null} when
+     * the detail could not be read once the client had retried what it will. That is logged, and
+     * costs the posting its Posting Date rather than the Company its run: the listing is still
+     * complete, so what the Career Site lists can be stored and nothing is Closed by mistake.
+     * A request abandoned because this thread is being shut down is not the Career Site's
+     * fault, and still fails the Company rather than store it half-read as succeeded.
      */
-    private LocalDate postingDateOf(CareerSite site, WorkdayPosting posting) {
+    private LocalDate postingDateOf(
+            ActiveRun run, long outcomeId, CareerSite site, WorkdayPosting posting) {
         if (!posting.postedTodayOrYesterday()) {
             return null;
         }
-        return workday.fetchDetail(site, posting.externalPath()).startDate();
+        try {
+            return workday.fetchDetail(site, posting.externalPath()).startDate();
+        } catch (WorkdayClient.RequestFailedException e) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw e;
+            }
+            log.warn(
+                    "Scrape Run {}: Company outcome {}: detail of {} could not be read ({}); the"
+                            + " posting is stored without a Posting Date",
+                    run.id,
+                    outcomeId,
+                    site.postingUrl(posting.externalPath()),
+                    e.getMessage());
+            return null;
+        }
     }
 }

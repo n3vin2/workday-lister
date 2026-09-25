@@ -9,7 +9,7 @@ import java.time.LocalDate;
  *
  * @param posting the listing
  * @param postingDate the detail's {@code startDate}; {@code null} for every other label, whose
- *     detail the run never asks for
+ *     detail the run never asks for, and when the detail could not be read
  */
 record ScrapedPosting(WorkdayPosting posting, LocalDate postingDate) {
 

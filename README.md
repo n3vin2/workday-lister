@@ -85,8 +85,12 @@ as a `Retry-After` header asks when that is longer. A Company whose Career Site 
 read after the last retry, cannot be reached at all, or answers with any other error status is
 marked failed with a short reason, and the run moves on to the next Company and finishes partially
 failed. The Roster screen shows the reason under the failed status and offers Retry, a run over just
-that Company under the same one-run-at-a-time rule as a full run. Cancel takes effect at the run's
-next check between Companies or requests, so a wait in progress finishes first.
+that Company under the same one-run-at-a-time rule as a full run. A posting whose detail cannot be
+read, after the same retries, does not fail its Company: the posting is stored from the list with
+no Posting Date, keeping one an earlier run stored, so it is not one of Today's Postings until a
+later run reads the detail, and the failure is logged with the run, the Company and the posting's
+URL. Cancel takes effect at the run's next check between Companies or requests, so a wait in
+progress finishes first.
 
 ## Today's Postings
 
@@ -94,7 +98,8 @@ Workday's list only labels a posting's age relative to the Career Site's timezon
 Today", "Posted Yesterday", "Posted 30+ Days Ago"), so the run fetches the posting's detail, which
 carries an absolute `startDate`, for postings labelled "Posted Today" or "Posted Yesterday" only,
 and stores that date as the Posting Date ([ADR-0002](docs/adr/0002-posted-today-definition.md)).
-Every other posting costs no extra request and has no Posting Date. A Company's Today's Postings
+Every other posting costs no extra request and has no Posting Date, and neither has a posting whose
+detail could not be read (see above). A Company's Today's Postings
 are its Open postings whose Posting Date equals the current date in `scraper.timezone` (default
 `America/Regina`), judged when the page is loaded, so a posting stops being today's at midnight
 without a re-scrape.
