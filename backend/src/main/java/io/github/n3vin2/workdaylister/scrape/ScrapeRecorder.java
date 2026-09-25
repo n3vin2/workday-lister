@@ -50,12 +50,24 @@ class ScrapeRecorder {
      */
     @Transactional
     public Optional<ScrapeRun> open() {
-        List<Company> roster = companies.findAllByOrderByNameAsc();
-        if (roster.isEmpty()) {
+        return open(companies.findAllByOrderByNameAsc());
+    }
+
+    /**
+     * Opens a run over just one Company, the per-Company Retry, with a QUEUED outcome for it.
+     * Empty when no Company has that id.
+     */
+    @Transactional
+    public Optional<ScrapeRun> openFor(long companyId) {
+        return open(companies.findById(companyId).stream().toList());
+    }
+
+    private Optional<ScrapeRun> open(List<Company> over) {
+        if (over.isEmpty()) {
             return Optional.empty();
         }
         ScrapeRun run = runs.save(new ScrapeRun(Instant.now(clock)));
-        outcomes.saveAll(roster.stream().map(company -> new CompanyOutcome(run, company)).toList());
+        outcomes.saveAll(over.stream().map(company -> new CompanyOutcome(run, company)).toList());
         return Optional.of(run);
     }
 
@@ -123,10 +135,28 @@ class ScrapeRecorder {
         outcome.getCompany().cancelScrape();
     }
 
-    /** Every Company has been visited. */
+    /**
+     * The Company's Career Site could not be read, for the given reason: the outcome and the
+     * Company are marked failed with it, cut to fit the column, and nothing is applied, so
+     * the Company keeps the previous run's postings, count and last scraped time.
+     */
+    @Transactional
+    public void fail(long outcomeId, String reason) {
+        CompanyOutcome outcome = outcomes.findById(outcomeId).orElseThrow();
+        String shortReason =
+                reason.length() > Company.ERROR_MESSAGE_LENGTH
+                        ? reason.substring(0, Company.ERROR_MESSAGE_LENGTH)
+                        : reason;
+        outcome.fail(Instant.now(clock), shortReason);
+        outcome.getCompany().failScrape(shortReason);
+    }
+
+    /** Every Company has been visited; the run partially failed if any of them failed. */
     @Transactional
     public void close(long runId) {
-        runs.findById(runId).orElseThrow().finish(Instant.now(clock));
+        boolean anyCompanyFailed =
+                outcomes.existsByRunIdAndStatus(runId, OutcomeStatus.FAILED);
+        runs.findById(runId).orElseThrow().finish(Instant.now(clock), anyCompanyFailed);
     }
 
     /**

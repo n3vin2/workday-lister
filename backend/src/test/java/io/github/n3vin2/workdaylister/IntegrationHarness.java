@@ -15,6 +15,7 @@ import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,8 +36,8 @@ import org.testcontainers.containers.MySQLContainer;
 
 /**
  * Base class for backend integration tests: the full Spring context against a Testcontainers
- * MySQL, with a WireMock server standing in for every Workday Career Site, request pacing set
- * to zero, and the clock pinned to {@link PinnedClockConfig#PINNED_NOW}.
+ * MySQL, with a WireMock server standing in for every Workday Career Site, request pacing and
+ * retry backoff set to zero, and the clock pinned to {@link PinnedClockConfig#PINNED_NOW}.
  *
  * <p>Tests drive the application only through its HTTP API ({@link #api}) and the Workday stub
  * ({@link #workday}). The MySQL container and the stub server are started once per JVM and shared
@@ -44,9 +45,11 @@ import org.testcontainers.containers.MySQLContainer;
  *
  * <p>Every test starts with an empty Roster and an idle scraper. Because a successful upload starts
  * a Scrape Run on a background thread, the harness waits for {@code GET /api/runs/current} to
- * report no active run before the next test resets the stub and empties the Roster. Until a test
- * says otherwise, every Career Site on the stub is empty (a page with no postings), so a run always
- * finishes.
+ * report no active run after each test and again before the next resets the stub and empties the
+ * Roster; waiting after as well means no run outlives its test, even when the next test class
+ * boots a context of its own (a subclass with a {@code @TestPropertySource}) against the same
+ * database and stub. Until a test says otherwise, every Career Site on the stub is empty (a page
+ * with no postings), so a run always finishes.
  *
  * <p>To observe a run in the middle of a Company, a test gives that Company's stub the
  * {@link #HOLD} transformer and calls {@link #holdResponses()}: the stub then answers only once
@@ -54,7 +57,7 @@ import org.testcontainers.containers.MySQLContainer;
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "scraper.pacing-interval=0ms")
+        properties = {"scraper.pacing-interval=0ms", "scraper.retry-backoff=0ms"})
 @Import(PinnedClockConfig.class)
 public abstract class IntegrationHarness {
 
@@ -142,6 +145,12 @@ public abstract class IntegrationHarness {
         uploadRoster("company,url\n");
     }
 
+    @AfterEach
+    void leaveTheScraperIdle() {
+        releaseHeldResponses();
+        awaitIdle();
+    }
+
     /** Uploads the text as a {@code roster.csv} multipart file to {@code POST /api/roster}. */
     protected ResponseEntity<JsonNode> uploadRoster(String csv) {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
@@ -171,6 +180,11 @@ public abstract class IntegrationHarness {
     /** {@code POST /api/runs/current/cancel}: asks the active run to stop. */
     protected ResponseEntity<JsonNode> cancelRun() {
         return api.postForEntity("/api/runs/current/cancel", null, JsonNode.class);
+    }
+
+    /** {@code POST /api/companies/{id}/retry}: starts a Scrape Run over just that Company. */
+    protected ResponseEntity<JsonNode> retryCompany(long companyId) {
+        return api.postForEntity("/api/companies/" + companyId + "/retry", null, JsonNode.class);
     }
 
     /**

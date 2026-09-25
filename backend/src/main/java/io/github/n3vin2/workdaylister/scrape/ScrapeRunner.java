@@ -27,10 +27,9 @@ import org.springframework.stereotype.Component;
  * nothing applied, the Companies not yet reached are cancelled untouched, and the run is recorded
  * as cancelled.
  *
- * <p>An error on one Company is logged and the run moves on to the next, so one bad Career Site
- * does not cost the rest. Recording that failure on the Company and its outcome, pacing and retry
- * arrive with a later ticket; until then a Company that failed keeps the status it had when the
- * error struck.
+ * <p>A Company whose Career Site cannot be read, once the Workday client has retried what it will,
+ * is marked failed with the reason and the run moves on to the next, so one bad Career Site does
+ * not cost the rest; the run then finishes partially failed. Pacing and retry are the client's.
  */
 @Component
 class ScrapeRunner {
@@ -47,6 +46,9 @@ class ScrapeRunner {
     }
 
     private static final Logger log = LoggerFactory.getLogger(ScrapeRunner.class);
+
+    /** The reason recorded when something other than a Workday request fails a Company. */
+    private static final String UNEXPECTED_ERROR = "Unexpected error: ";
 
     private final ScrapeRecorder recorder;
     private final WorkdayClient workday;
@@ -123,7 +125,8 @@ class ScrapeRunner {
 
     /**
      * One Company's turn: mark it in progress, read its Career Site, store what was listed; or, if
-     * the run was cancelled part-way through the pages, store nothing and mark it cancelled.
+     * the run was cancelled part-way through the pages, store nothing and mark it cancelled; or,
+     * if the Career Site could not be read, store nothing and mark it failed with the reason.
      */
     private void scrape(ActiveRun run, long outcomeId) {
         try {
@@ -132,8 +135,16 @@ class ScrapeRunner {
                     .ifPresentOrElse(
                             listed -> recorder.record(outcomeId, listed),
                             () -> recorder.cancelCompany(outcomeId));
+        } catch (WorkdayClient.RequestFailedException e) {
+            log.warn(
+                    "Scrape Run {}: Company outcome {} failed: {}",
+                    run.id,
+                    outcomeId,
+                    e.getMessage());
+            recorder.fail(outcomeId, e.getMessage());
         } catch (RuntimeException e) {
             log.error("Scrape Run {}: Company outcome {} failed", run.id, outcomeId, e);
+            recorder.fail(outcomeId, UNEXPECTED_ERROR + e);
         }
     }
 

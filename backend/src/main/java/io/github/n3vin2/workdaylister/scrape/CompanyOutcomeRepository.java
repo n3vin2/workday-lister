@@ -10,4 +10,7 @@ interface CompanyOutcomeRepository extends JpaRepository<CompanyOutcome, Long> {
 
     /** A run's outcomes in one state, for example those still QUEUED when it is cancelled. */
     List<CompanyOutcome> findAllByRunIdAndStatus(Long runId, OutcomeStatus status);
+
+    /** Whether any of a run's outcomes is in the state, for example FAILED when it closes. */
+    boolean existsByRunIdAndStatus(Long runId, OutcomeStatus status);
 }

@@ -5,6 +5,7 @@ const STATUS_LABELS = {
   QUEUED: 'Queued',
   IN_PROGRESS: 'In progress',
   SUCCEEDED: 'Succeeded',
+  FAILED: 'Failed',
   CANCELLED: 'Cancelled',
 }
 

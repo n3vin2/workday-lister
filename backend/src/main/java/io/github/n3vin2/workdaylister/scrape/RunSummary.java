@@ -18,7 +18,7 @@ public record RunSummary(
         int total,
         List<OutcomeSummary> outcomes) {
 
-    /** One Company's outcome within a run. */
+    /** One Company's outcome within a run, with why it failed ({@code null} unless it did). */
     public record OutcomeSummary(
             long companyId,
             String name,
@@ -26,7 +26,8 @@ public record RunSummary(
             Instant startedAt,
             Instant finishedAt,
             int postingsSeen,
-            boolean truncated) {
+            boolean truncated,
+            String errorMessage) {
 
         static OutcomeSummary of(CompanyOutcome outcome) {
             return new OutcomeSummary(
@@ -36,7 +37,8 @@ public record RunSummary(
                     outcome.getStartedAt(),
                     outcome.getFinishedAt(),
                     outcome.getPostingsSeen(),
-                    outcome.isTruncated());
+                    outcome.isTruncated(),
+                    outcome.getErrorMessage());
         }
     }
 

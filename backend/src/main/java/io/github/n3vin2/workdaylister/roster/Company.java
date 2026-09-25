@@ -18,9 +18,10 @@ import org.hibernate.annotations.DynamicUpdate;
  * stable across Roster uploads that keep the same Career Site, so anything that later hangs off a
  * Company survives a re-upload.
  *
- * <p>The status, last scraped time, Open posting count and truncated flag are what the latest
- * Scrape Run left behind, denormalised here so the Roster screen needs no join
- * ({@code V3__scrape_run_and_job_posting.sql}). A Roster upload and a Scrape Run may touch the same
+ * <p>The status, last scraped time, Open posting count, truncated flag and error message are what
+ * the latest Scrape Run left behind, denormalised here so the Roster screen needs no join
+ * ({@code V3__scrape_run_and_job_posting.sql}, {@code V6__error_message.sql}). A Roster upload and
+ * a Scrape Run may touch the same
  * row at the same time, the upload its name and URL and the run its results, so updates write only
  * the columns that changed rather than the whole row.
  */
@@ -28,6 +29,12 @@ import org.hibernate.annotations.DynamicUpdate;
 @Table(name = "company")
 @DynamicUpdate
 public class Company {
+
+    /**
+     * Width of the {@code error_message} columns ({@code V6__error_message.sql}); a longer reason
+     * is cut to fit before it is recorded.
+     */
+    public static final int ERROR_MESSAGE_LENGTH = 512;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -57,6 +64,10 @@ public class Company {
     @Column(nullable = false)
     private boolean truncated;
 
+    /** Why the latest Scrape Run could not read the Career Site; null unless FAILED. */
+    @Column(name = "error_message", length = ERROR_MESSAGE_LENGTH)
+    private String errorMessage;
+
     protected Company() {}
 
     /** A Company that has never been scraped, as first described by a Roster CSV row. */
@@ -73,9 +84,13 @@ public class Company {
         this.careerSiteUrl = entry.careerSiteUrl();
     }
 
-    /** A Scrape Run has started reading this Company's Career Site. */
+    /**
+     * A Scrape Run has started reading this Company's Career Site; whatever went wrong last time
+     * no longer describes it.
+     */
     public void beginScrape() {
         this.status = CompanyStatus.IN_PROGRESS;
+        this.errorMessage = null;
     }
 
     /** A Scrape Run has finished with this Company: its Open postings are counted and stored. */
@@ -84,6 +99,15 @@ public class Company {
         this.lastScrapedAt = at;
         this.openCount = openCount;
         this.truncated = truncated;
+    }
+
+    /**
+     * A Scrape Run could not read this Company's Career Site, for the given reason: nothing was
+     * applied, so the postings, count and last scraped time are still the previous run's.
+     */
+    public void failScrape(String reason) {
+        this.status = CompanyStatus.FAILED;
+        this.errorMessage = reason;
     }
 
     /**
@@ -124,5 +148,9 @@ public class Company {
 
     public boolean isTruncated() {
         return truncated;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
     }
 }

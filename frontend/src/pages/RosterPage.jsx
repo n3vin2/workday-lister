@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { listCompanies, uploadRoster } from '../api/roster.js'
+import { listCompanies, retryCompany, uploadRoster } from '../api/roster.js'
 import { cancelRun, getCurrentRun, startRun } from '../api/runs.js'
 import Notice from '../components/Notice.jsx'
 import { formatDateTime, formatElapsed, formatStatus } from '../format.js'
@@ -24,7 +24,8 @@ async function loadRunThenRoster() {
 /**
  * The Roster screen: upload a CSV of Companies, start a Scrape Run over it, and see what the latest
  * run left for each Company. While a run is active the upload form and Scrape now give way to the
- * run's progress and a Cancel button, and each Company's row shows where the run is with it.
+ * run's progress and a Cancel button, and each Company's row shows where the run is with it. A
+ * failed Company shows why and offers Retry, a run over just that Company.
  */
 export default function RosterPage() {
   const [companies, setCompanies] = useState(null)
@@ -104,6 +105,11 @@ export default function RosterPage() {
     setRefusal(null)
   }
 
+  function handleRetried(run) {
+    setActiveRun(run)
+    setRefusal(null)
+  }
+
   return (
     <main className="mx-auto max-w-4xl p-6">
       <h1 className="text-2xl font-semibold">Workday Lister</h1>
@@ -136,7 +142,12 @@ export default function RosterPage() {
         (companies.length === 0 ? (
           <EmptyRoster />
         ) : (
-          <CompanyTable companies={companies} run={activeRun} />
+          <CompanyTable
+            companies={companies}
+            run={activeRun}
+            onRetried={handleRetried}
+            onRetryRefused={showRefusal}
+          />
         ))}
     </main>
   )
@@ -318,12 +329,13 @@ function EmptyRoster() {
 
 /**
  * The Roster as a table. While a run is active, a Company's status is where the run is with it
- * (queued, in progress, done); otherwise it is what the latest run left behind.
+ * (queued, in progress, done, failed); otherwise it is what the latest run left behind. A failed
+ * Company shows the reason under its status and, while no run is active, a Retry button.
  */
-function CompanyTable({ companies, run }) {
+function CompanyTable({ companies, run, onRetried, onRetryRefused }) {
   function statusOf(company) {
     const outcome = run?.outcomes.find((candidate) => candidate.companyId === company.id)
-    return outcome ? outcome.status : company.status
+    return outcome ?? company
   }
 
   return (
@@ -333,31 +345,97 @@ function CompanyTable({ companies, run }) {
           <th className="py-2 pr-4">Company</th>
           <th className="py-2 pr-4">Open</th>
           <th className="py-2 pr-4">Last scraped</th>
-          <th className="py-2">Status</th>
+          <th className="py-2 pr-4">Status</th>
+          <th className="py-2">
+            <span className="sr-only">Actions</span>
+          </th>
         </tr>
       </thead>
       <tbody>
-        {companies.map((company) => (
-          <tr key={company.id} className="border-b border-gray-100">
-            <td className="py-2 pr-4 font-medium">
-              <Link
-                to={`/companies/${company.id}`}
-                className="text-blue-700 hover:underline"
-              >
-                {company.name}
-              </Link>
-            </td>
-            <td className="py-2 pr-4 tabular-nums">
-              <OpenCount company={company} />
-            </td>
-            <td className="py-2 pr-4 text-gray-600">
-              {company.lastScrapedAt ? formatDateTime(company.lastScrapedAt) : '—'}
-            </td>
-            <td className="py-2 text-gray-600">{formatStatus(statusOf(company))}</td>
-          </tr>
-        ))}
+        {companies.map((company) => {
+          const { status, errorMessage } = statusOf(company)
+          return (
+            <tr key={company.id} className="border-b border-gray-100">
+              <td className="py-2 pr-4 font-medium">
+                <Link
+                  to={`/companies/${company.id}`}
+                  className="text-blue-700 hover:underline"
+                >
+                  {company.name}
+                </Link>
+              </td>
+              <td className="py-2 pr-4 tabular-nums">
+                <OpenCount company={company} />
+              </td>
+              <td className="py-2 pr-4 text-gray-600">
+                {company.lastScrapedAt ? formatDateTime(company.lastScrapedAt) : '—'}
+              </td>
+              <td className="py-2 pr-4 text-gray-600">
+                {formatStatus(status)}
+                {status === 'FAILED' && errorMessage && (
+                  <span className="block text-xs text-red-700">{errorMessage}</span>
+                )}
+              </td>
+              <td className="py-2">
+                {run === null && status === 'FAILED' && (
+                  <RetryButton
+                    company={company}
+                    onRetried={onRetried}
+                    onRefused={onRetryRefused}
+                  />
+                )}
+              </td>
+            </tr>
+          )
+        })}
       </tbody>
     </table>
+  )
+}
+
+/**
+ * Retry for one failed Company: a Scrape Run over just that Company, under the same
+ * one-run-at-a-time rule as a full run, so a refusal means a run is active.
+ */
+function RetryButton({ company, onRetried, onRefused }) {
+  const [retrying, setRetrying] = useState(false)
+  const [failure, setFailure] = useState(null)
+
+  async function handleClick() {
+    setRetrying(true)
+    setFailure(null)
+    try {
+      const result = await retryCompany(company.id)
+      if (result.ok) {
+        onRetried(result.run)
+      } else if (result.reason) {
+        onRefused(`Could not retry ${company.name}: ${result.reason}`)
+      } else {
+        onRefused(`Could not retry ${company.name}: it is no longer in the Roster`)
+      }
+    } catch (error) {
+      setFailure(error.message)
+    } finally {
+      setRetrying(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={retrying}
+        className="rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium disabled:opacity-50"
+      >
+        {retrying ? 'Retrying…' : 'Retry'}
+      </button>
+      {failure && (
+        <p role="alert" className="mt-1 text-xs text-red-800">
+          Could not retry {company.name}: {failure}
+        </p>
+      )}
+    </>
   )
 }
 

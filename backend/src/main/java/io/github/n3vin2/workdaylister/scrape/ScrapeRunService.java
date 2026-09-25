@@ -6,8 +6,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Scrape Runs: starting one over the Roster, one at a time, cancelling the active one, and reading
- * one back with its per-Company outcomes.
+ * Scrape Runs: starting one over the Roster or over one Company (the per-Company Retry), one at a
+ * time, cancelling the active one, and reading one back with its per-Company outcomes.
  */
 @Service
 public class ScrapeRunService {
@@ -67,9 +67,26 @@ public class ScrapeRunService {
             throw new RunActiveException();
         }
         beforeStart.run();
-        Optional<ScrapeRun> run = recorder.open();
-        run.ifPresent(opened -> runner.launch(opened.getId()));
-        return run;
+        return launch(recorder.open());
+    }
+
+    /**
+     * Retry: starts a run over just one Company, so a failed Company can be scraped again without
+     * re-running the whole Roster, under the same one-run-at-a-time rule as a full run. Returns as
+     * soon as the run is recorded; empty when no Company has that id.
+     *
+     * @throws RunActiveException when a run is active
+     */
+    public synchronized Optional<ScrapeRun> retry(long companyId) {
+        if (runner.activeRun().isPresent()) {
+            throw new RunActiveException();
+        }
+        return launch(recorder.openFor(companyId));
+    }
+
+    private Optional<ScrapeRun> launch(Optional<ScrapeRun> opened) {
+        opened.ifPresent(run -> runner.launch(run.getId()));
+        return opened;
     }
 
     /** One run, running or finished, or empty when no run has that id. */

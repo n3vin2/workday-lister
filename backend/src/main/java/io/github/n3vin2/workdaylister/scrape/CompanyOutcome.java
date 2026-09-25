@@ -16,9 +16,9 @@ import java.time.Instant;
 
 /**
  * What one Scrape Run did with one Company: when it started and finished reading the Career Site,
- * how many postings it saw, and whether Workday's cap truncated the list. One row per (run,
- * Company), created QUEUED when the run starts. A cancelled run leaves the Companies it had not
- * finished CANCELLED, with nothing stored for them.
+ * how many postings it saw, whether Workday's cap truncated the list, and why it failed if it did.
+ * One row per (run, Company), created QUEUED when the run starts. A cancelled run leaves the
+ * Companies it had not finished CANCELLED, with nothing stored for them.
  */
 @Entity
 @Table(name = "company_outcome")
@@ -52,6 +52,10 @@ public class CompanyOutcome {
     @Column(nullable = false)
     private boolean truncated;
 
+    /** Why the Career Site could not be read; null unless FAILED. */
+    @Column(name = "error_message", length = Company.ERROR_MESSAGE_LENGTH)
+    private String errorMessage;
+
     protected CompanyOutcome() {}
 
     /** A Company waiting its turn in a run. */
@@ -73,6 +77,13 @@ public class CompanyOutcome {
         this.finishedAt = at;
         this.postingsSeen = postingsSeen;
         this.truncated = truncated;
+    }
+
+    /** The Career Site could not be read, for the given reason; nothing it listed is stored. */
+    void fail(Instant at, String reason) {
+        this.status = OutcomeStatus.FAILED;
+        this.finishedAt = at;
+        this.errorMessage = reason;
     }
 
     /** The run was cancelled before it was done with this Company; nothing it listed is stored. */
@@ -111,5 +122,9 @@ public class CompanyOutcome {
 
     public boolean isTruncated() {
         return truncated;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
     }
 }

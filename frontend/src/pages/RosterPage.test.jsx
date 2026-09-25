@@ -31,6 +31,12 @@ const acmeScraped = {
   openCount: 3,
   lastScrapedAt: '2026-09-21T15:00:00Z',
 }
+const FAILURE_REASON = 'Career Site answered HTTP 503 after 3 retries'
+const acmeFailed = {
+  ...acmeScraped,
+  status: 'FAILED',
+  errorMessage: FAILURE_REASON,
+}
 const activeRun = {
   id: 7,
   status: 'RUNNING',
@@ -46,8 +52,15 @@ const startedRun = {
   done: 0,
   outcomes: [outcome(acme, 'QUEUED'), outcome(nvidia, 'QUEUED')],
 }
+const retryRun = {
+  ...activeRun,
+  id: 8,
+  done: 0,
+  total: 1,
+  outcomes: [outcome(acme, 'QUEUED')],
+}
 
-function outcome(company, status) {
+function outcome(company, status, errorMessage = null) {
   return {
     companyId: company.id,
     name: company.name,
@@ -56,6 +69,7 @@ function outcome(company, status) {
     finishedAt: null,
     postingsSeen: 0,
     truncated: false,
+    errorMessage,
   }
 }
 
@@ -426,4 +440,75 @@ test('a refused upload says a run is in progress and keeps the Roster', async ()
   expect(await screen.findByRole('alert')).toHaveTextContent(`Upload refused: ${RUN_IN_PROGRESS}`)
   expect(screen.getByText('Acme')).toBeInTheDocument()
   expect(screen.queryByRole('list', { name: /upload rejected/i })).not.toBeInTheDocument()
+})
+
+test('a failed Company shows Failed with its error reason and offers Retry', async () => {
+  rosterIs([acmeFailed, nvidia])
+
+  renderRoster()
+
+  const row = await screen.findByRole('row', { name: /failed/i })
+  expect(row.textContent).toBe(`Acme32026-09-21 09:00Failed${FAILURE_REASON}Retry`)
+  expect(within(row).getByRole('button', { name: /retry/i })).toBeInTheDocument()
+  expect(
+    within(screen.getByRole('row', { name: /succeeded/i })).queryByRole('button'),
+  ).not.toBeInTheDocument()
+})
+
+test('Retry runs just that Company and shows the run it started', async () => {
+  rosterIs([acmeFailed, nvidia])
+  let retried = null
+  server.use(
+    http.post('/api/companies/:id/retry', ({ params }) => {
+      retried = params.id
+      return HttpResponse.json(retryRun, { status: 202 })
+    }),
+  )
+  renderRoster()
+  const row = await screen.findByRole('row', { name: /failed/i })
+
+  fireEvent.click(within(row).getByRole('button', { name: /retry/i }))
+
+  expect(await screen.findByText(/0 of 1 companies done/i)).toBeInTheDocument()
+  expect(retried).toBe('1')
+  expect(screen.getByRole('row', { name: /queued/i })).toHaveTextContent('Acme')
+  expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /scrape now/i })).not.toBeInTheDocument()
+})
+
+test("a failed Company's reason is shown from the active run's outcome while it runs", async () => {
+  rosterIs([acmeScraped, nvidia])
+  runIs({
+    ...activeRun,
+    outcomes: [outcome(acme, 'FAILED', FAILURE_REASON), outcome(nvidia, 'IN_PROGRESS')],
+  })
+
+  renderRoster()
+
+  const row = await screen.findByRole('row', { name: /failed/i })
+  expect(row.textContent).toBe(`Acme32026-09-21 09:00Failed${FAILURE_REASON}`)
+  expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+})
+
+test('a refused Retry says a run is in progress and shows that run', async () => {
+  rosterIs([acmeFailed, nvidia])
+  let refused = false
+  server.use(
+    http.post('/api/companies/:id/retry', () => {
+      refused = true
+      return HttpResponse.json({ reason: RUN_IN_PROGRESS }, { status: 409 })
+    }),
+    http.get('/api/runs/current', () =>
+      refused ? HttpResponse.json(activeRun) : new HttpResponse(null, { status: 204 }),
+    ),
+  )
+  renderRoster()
+  const row = await screen.findByRole('row', { name: /failed/i })
+
+  fireEvent.click(within(row).getByRole('button', { name: /retry/i }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    `Could not retry Acme: ${RUN_IN_PROGRESS}`,
+  )
+  expect(await screen.findByText(/1 of 2 companies done/i)).toBeInTheDocument()
 })

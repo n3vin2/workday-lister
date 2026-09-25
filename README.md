@@ -69,17 +69,28 @@ every listed posting records it as Last Seen. The Roster screen shows each Compa
 count, last scraped time and status; the Company screen at `/companies/:id` lists every Open
 posting as a card that opens the posting on Workday in a new tab.
 
+Requests to Workday are paced: consecutive requests are separated by `scraper.pacing-interval`
+(250 ms by default), because Workday rate-limits by source IP across every Career Site. A request
+Workday throttles (`429`) or fails (`5xx`) is retried up to `scraper.retry-count` times, waiting
+`scraper.retry-backoff` before the first retry and twice as long before each later one, or as long
+as a `Retry-After` header asks when that is longer. A Company whose Career Site still cannot be
+read after the last retry, cannot be reached at all, or answers with any other error status is
+marked failed with a short reason, and the run moves on to the next Company and finishes partially
+failed. The Roster screen shows the reason under the failed status and offers Retry, a run over just
+that Company under the same one-run-at-a-time rule as a full run.
+
 | Endpoint | What |
 | --- | --- |
 | `POST /api/runs` | Start a run over the current Roster. `202` with the run, or `409` with a `reason` when a run is active or the Roster is empty. |
 | `GET /api/runs/current` | The active run's progress: Companies `done` of `total`, `startedAt`, and each Company's outcome status. `204` when no run is active. |
 | `POST /api/runs/current/cancel` | Ask the active run to stop. `202` with the run, or `204` when no run is active. |
-| `GET /api/runs/{id}` | The run, with its start and end time, status (`RUNNING`, `SUCCEEDED`, `CANCELLED`), progress, and each Company's outcome (status, postings seen, truncated). |
+| `GET /api/runs/{id}` | The run, with its start and end time, status (`RUNNING`, `SUCCEEDED`, `PARTIALLY_FAILED`, `CANCELLED`), progress, and each Company's outcome (status, postings seen, truncated, error message). |
 | `GET /api/companies/{id}` | A Company's header plus its Open postings. |
+| `POST /api/companies/{id}/retry` | Retry: start a run over just that Company. `202` with the run, `409` with a `reason` when a run is active, or `404` when no Company has that id. |
 
 `POST /api/roster` also answers `409` with a `reason` while a run is active. Finished runs are
-stored but not displayed: there is no run history screen. Retry and pacing, Closed postings, and
-Today's Postings are tracked as separate issues.
+stored but not displayed: there is no run history screen. Closed postings and Today's Postings are
+tracked as separate issues.
 
 ## Layout
 
@@ -102,6 +113,7 @@ rebuild through environment variables (or an external `application.yml`):
 | ------------------------- | ---------------- | ------------------------- |
 | `scraper.pacing-interval` | `250ms`          | `SCRAPER_PACING_INTERVAL` |
 | `scraper.retry-count`     | `3`              | `SCRAPER_RETRY_COUNT`     |
+| `scraper.retry-backoff`   | `1s`             | `SCRAPER_RETRY_BACKOFF`   |
 | `scraper.timezone`        | `America/Regina` | `SCRAPER_TIMEZONE`        |
 | `workday.client.scheme`   | `https`          | `WORKDAY_CLIENT_SCHEME`   |
 | `workday.client.host`     | blank (each Career Site's own host) | `WORKDAY_CLIENT_HOST` |
@@ -111,7 +123,8 @@ rebuild through environment variables (or an external `application.yml`):
 ## Tests
 
 Backend integration tests boot the full application against a Testcontainers MySQL and a WireMock
-stub of Workday, with request pacing set to zero and the clock pinned. Docker must be running. The
+stub of Workday, with request pacing and retry backoff set to zero (one test class raises both to
+measure them) and the clock pinned. Docker must be running. The
 stub's canned responses under `backend/src/test/resources/wiremock/__files/workday/` were recorded
 from a real Career Site; its README says when and how.
 

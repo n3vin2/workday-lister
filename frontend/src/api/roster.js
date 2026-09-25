@@ -1,8 +1,10 @@
-// The Roster API: GET /api/companies, GET /api/companies/:id and POST /api/roster.
+// The Roster API: GET /api/companies, GET /api/companies/:id, POST /api/companies/:id/retry and
+// POST /api/roster.
 
 /**
  * The current Roster, sorted by name: every Company with its id, name, status, Open posting count,
- * last scraped time (null until scraped) and truncated flag.
+ * last scraped time (null until scraped), truncated flag, and the error reason when its status is
+ * FAILED (null otherwise).
  */
 export async function listCompanies() {
   const response = await fetch('/api/companies')
@@ -20,6 +22,24 @@ export async function getCompany(id) {
   if (!response.ok) throw new Error(`Loading the Company failed with HTTP ${response.status}`)
   const company = await response.json()
   return { ok: true, company }
+}
+
+/**
+ * Retry: starts a Scrape Run over just one Company, so a failed Company can be scraped again
+ * without re-running the whole Roster; it proceeds in the background. Resolves to
+ * {@code { ok: true, run }} with the started run; to {@code { ok: false, reason }} when the backend
+ * refused because a run is active; or to {@code { ok: false }} when no Company has that id.
+ */
+export async function retryCompany(id) {
+  const response = await fetch(`/api/companies/${id}/retry`, { method: 'POST' })
+  if (response.status === 404) return { ok: false }
+  if (response.status === 409) {
+    const { reason } = await response.json()
+    return { ok: false, reason }
+  }
+  if (!response.ok) throw new Error(`Retrying the Company failed with HTTP ${response.status}`)
+  const run = await response.json()
+  return { ok: true, run }
 }
 
 /**

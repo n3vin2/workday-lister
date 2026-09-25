@@ -41,10 +41,14 @@ public class ScrapeRun {
         this.status = ScrapeRunStatus.RUNNING;
     }
 
-    /** Every Company has been visited. */
-    void finish(Instant at) {
+    /**
+     * Every Company has been visited: the run succeeded, or partially failed if any Company's
+     * Career Site could not be read.
+     */
+    void finish(Instant at, boolean anyCompanyFailed) {
         this.finishedAt = at;
-        this.status = ScrapeRunStatus.SUCCEEDED;
+        this.status =
+                anyCompanyFailed ? ScrapeRunStatus.PARTIALLY_FAILED : ScrapeRunStatus.SUCCEEDED;
     }
 
     /** Stopped at the user's request before every Company was visited. */
