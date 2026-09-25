@@ -14,12 +14,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code GET /api/companies}: the Roster as the Roster screen lists it. {@code GET
- * /api/companies/{id}}: one Company with its Open postings, as the Company screen shows it. {@code
- * POST /api/companies/{id}/retry}: Retry, a Scrape Run over just that Company.
+ * /api/companies/{id}}: one Company with its Open postings, as the Company screen shows it, and
+ * its Closed ones too with {@code ?includeClosed=true}. {@code POST /api/companies/{id}/retry}:
+ * Retry, a Scrape Run over just that Company.
  */
 @RestController
 @RequestMapping("/api/companies")
@@ -47,12 +49,14 @@ class CompanyController {
     }
 
     @GetMapping("/{id}")
-    ResponseEntity<CompanyDetail> find(@PathVariable long id) {
+    ResponseEntity<CompanyDetail> find(
+            @PathVariable long id,
+            @RequestParam(defaultValue = "false") boolean includeClosed) {
         Optional<Company> company = rosterService.find(id);
         if (company.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        List<JobPosting> postings = jobPostingService.openPostingsOf(company.get());
+        List<JobPosting> postings = jobPostingService.postingsOf(company.get(), includeClosed);
         return ResponseEntity.ok(CompanyDetail.of(company.get(), PostingSummary.ofAll(postings)));
     }
 

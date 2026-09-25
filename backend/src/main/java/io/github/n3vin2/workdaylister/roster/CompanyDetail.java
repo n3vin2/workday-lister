@@ -6,7 +6,7 @@ import java.util.List;
 
 /**
  * One Company as the Company screen shows it: the same header as its Roster row, flattened into
- * this object, plus every Open posting as a card.
+ * this object, plus its postings as cards: the Open ones, and the Closed ones too when asked for.
  */
 public record CompanyDetail(
         @JsonUnwrapped CompanySummary company, List<PostingSummary> postings) {

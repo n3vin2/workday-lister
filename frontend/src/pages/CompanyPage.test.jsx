@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { expect, test } from 'vitest'
@@ -10,6 +10,7 @@ const engineer = {
   title: 'Senior Software Engineer',
   locationText: 'US, CA, Santa Clara',
   postedOnLabel: 'Posted Today',
+  state: 'OPEN',
   publicUrl:
     'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-Software-Engineer_JR1990000',
   firstSeenRunId: 1,
@@ -20,8 +21,20 @@ const tester = {
   title: 'Software QA Engineer',
   locationText: '2 Locations',
   postedOnLabel: 'Posted 30+ Days Ago',
+  state: 'OPEN',
   publicUrl:
     'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Software-QA-Engineer_JR1990001',
+  firstSeenRunId: 1,
+  lastSeenRunId: 1,
+}
+const analyst = {
+  requisitionId: 'JR1980000',
+  title: 'Data Analyst',
+  locationText: 'US, TX, Austin',
+  postedOnLabel: 'Posted 30+ Days Ago',
+  state: 'CLOSED',
+  publicUrl:
+    'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-TX-Austin/Data-Analyst_JR1980000',
   firstSeenRunId: 1,
   lastSeenRunId: 1,
 }
@@ -37,6 +50,18 @@ const nvidia = {
 
 function companyIs(company) {
   server.use(http.get('/api/companies/2', () => HttpResponse.json(company)))
+}
+
+// The backend hides Closed postings unless asked with includeClosed=true.
+function companyWithClosedIs(company, closed) {
+  server.use(
+    http.get('/api/companies/2', ({ request }) => {
+      const includeClosed = new URL(request.url).searchParams.get('includeClosed') === 'true'
+      return HttpResponse.json(
+        includeClosed ? { ...company, postings: [...company.postings, ...closed] } : company,
+      )
+    }),
+  )
 }
 
 function renderCompany() {
@@ -103,6 +128,7 @@ test('a Company that has never been scraped says so instead of showing an empty 
   expect(await screen.findByText(/has not been scraped yet/i)).toBeInTheDocument()
   expect(screen.queryByRole('list', { name: /open postings/i })).not.toBeInTheDocument()
   expect(screen.queryByText(/last scraped/i)).not.toBeInTheDocument()
+  expect(screen.queryByLabelText(/include closed postings/i)).not.toBeInTheDocument()
 })
 
 test('a scraped Company with nothing Open says so', async () => {
@@ -111,6 +137,48 @@ test('a scraped Company with nothing Open says so', async () => {
   renderCompany()
 
   expect(await screen.findByText(/no open postings/i)).toBeInTheDocument()
+})
+
+test('Closed postings appear, marked Closed, only once "Include Closed postings" is ticked', async () => {
+  companyWithClosedIs(nvidia, [analyst])
+  renderCompany()
+  const open = await screen.findByRole('list', { name: /open postings/i })
+  expect(within(open).getAllByRole('listitem')).toHaveLength(2)
+
+  fireEvent.click(screen.getByLabelText(/include closed postings/i))
+
+  const all = await screen.findByRole('list', { name: /open and closed postings/i })
+  expect(within(all).getAllByRole('listitem').map((card) => card.textContent)).toEqual([
+    'Senior Software EngineerUS, CA, Santa ClaraJR1990000',
+    'Software QA Engineer2 LocationsJR1990001',
+    'Data AnalystClosedUS, TX, AustinJR1980000',
+  ])
+  expect(screen.getByLabelText(/include closed postings/i)).toBeChecked()
+})
+
+test('a Company with nothing Open still offers its Closed postings, and its Open count stays 0', async () => {
+  companyWithClosedIs({ ...nvidia, openCount: 0, postings: [] }, [analyst])
+  renderCompany()
+  await screen.findByText(/no open postings/i)
+
+  fireEvent.click(screen.getByLabelText(/include closed postings/i))
+
+  const all = await screen.findByRole('list', { name: /open and closed postings/i })
+  expect(within(all).getAllByRole('listitem').map((card) => card.textContent)).toEqual([
+    'Data AnalystClosedUS, TX, AustinJR1980000',
+  ])
+  expect(screen.getByText(/open postings: 0/i)).toBeInTheDocument()
+  expect(screen.queryByText(/no open postings/i)).not.toBeInTheDocument()
+})
+
+test('a Company with no postings at all says so once Closed ones are included', async () => {
+  companyWithClosedIs({ ...nvidia, openCount: 0, postings: [] }, [])
+  renderCompany()
+  await screen.findByText(/no open postings/i)
+
+  fireEvent.click(screen.getByLabelText(/include closed postings/i))
+
+  expect(await screen.findByText(/no postings, open or closed/i)).toBeInTheDocument()
 })
 
 test('reports a Company that is not in the Roster, with the way back', async () => {

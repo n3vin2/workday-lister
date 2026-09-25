@@ -13,11 +13,13 @@ export async function listCompanies() {
 }
 
 /**
- * One Company with the same header as its Roster row plus its Open postings. Resolves to
- * {@code { ok: true, company }}, or {@code { ok: false }} when no Company has that id.
+ * One Company with the same header as its Roster row plus its Open postings, and its Closed ones
+ * too when {@code includeClosed} is set. Resolves to {@code { ok: true, company }}, or
+ * {@code { ok: false }} when no Company has that id.
  */
-export async function getCompany(id) {
-  const response = await fetch(`/api/companies/${id}`)
+export async function getCompany(id, { includeClosed = false } = {}) {
+  const query = includeClosed ? '?includeClosed=true' : ''
+  const response = await fetch(`/api/companies/${id}${query}`)
   if (response.status === 404) return { ok: false }
   if (!response.ok) throw new Error(`Loading the Company failed with HTTP ${response.status}`)
   const company = await response.json()

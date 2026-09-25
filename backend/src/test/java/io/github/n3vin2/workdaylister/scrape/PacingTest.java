@@ -1,7 +1,5 @@
 package io.github.n3vin2.workdaylister.scrape;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
-import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.serviceUnavailable;
@@ -13,11 +11,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import io.github.n3vin2.workdaylister.IntegrationHarness;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
 
 /**
@@ -80,52 +75,5 @@ class PacingTest extends IntegrationHarness {
         assertThat(texts(roster, "status")).containsExactly("FAILED");
         assertThat(roster.get(0).path("errorMessage").asText())
                 .isEqualTo("Career Site answered HTTP 503 after 3 retries");
-    }
-
-    /** Uploads the Roster, which starts a run, waits for that run to finish, and returns its id. */
-    private long uploadAndAwaitRun(String csv) {
-        ResponseEntity<JsonNode> upload = uploadRoster(csv);
-        assertThat(upload.getStatusCode()).isEqualTo(HttpStatus.OK);
-        long runId = upload.getBody().path("run").path("id").asLong();
-        awaitRunFinished(runId);
-        return runId;
-    }
-
-    /** Stubs one page of a Career Site's jobs endpoint, matched on the requested offset. */
-    private static void stubJobs(String jobsPath, int offset, String body) {
-        workday.stubFor(
-                post(urlEqualTo(jobsPath))
-                        .withRequestBody(matchingJsonPath("$[?(@.offset == " + offset + ")]"))
-                        .willReturn(okJson(body)));
-    }
-
-    /**
-     * A page in the shape of the recorded fixtures: {@code count} postings numbered from
-     * {@code offset}, with requisition IDs {@code R<n>}, and the given {@code total}.
-     */
-    private static String jobsPage(int total, int offset, int count) {
-        List<String> postings = new ArrayList<>();
-        for (int n = offset; n < offset + count; n++) {
-            postings.add(
-                    """
-                    {"title":"Engineer %d","externalPath":"/job/Regina-SK/Engineer-%d_R%d",\
-                    "locationsText":"Regina, SK","postedOn":"Posted 30+ Days Ago",\
-                    "bulletFields":["R%d"]}"""
-                            .formatted(n, n, n, n));
-        }
-        return "{\"total\":%d,\"jobPostings\":[%s],\"userAuthenticated\":false}"
-                .formatted(total, String.join(",", postings));
-    }
-
-    private static List<String> texts(JsonNode array, String field) {
-        List<String> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asText()));
-        return values;
-    }
-
-    private static List<Integer> ints(JsonNode array, String field) {
-        List<Integer> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asInt()));
-        return values;
     }
 }

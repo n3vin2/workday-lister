@@ -69,6 +69,12 @@ every listed posting records it as Last Seen. The Roster screen shows each Compa
 count, last scraped time and status; the Company screen at `/companies/:id` lists every Open
 posting as a card that opens the posting on Workday in a new tab.
 
+Once a Career Site has been read in full, every posting it listed is Open and every stored posting
+it no longer listed is Closed: kept with everything it had when last seen, hidden from the Company
+screen until "Include Closed postings" is ticked (where it carries a Closed marker), and left out
+of the Roster's Open count. A Closed posting the Career Site lists again is Open again and keeps
+its First Seen. A pass that fails partway through reading a Career Site changes no posting's state.
+
 Requests to Workday are paced: consecutive requests are separated by `scraper.pacing-interval`
 (250 ms by default), because Workday rate-limits by source IP across every Career Site. A request
 Workday throttles (`429`) or fails (`5xx`) is retried up to `scraper.retry-count` times, waiting
@@ -86,12 +92,12 @@ next check between Companies or pages, so a wait in progress finishes first.
 | `GET /api/runs/current` | The active run's progress: Companies `done` of `total`, `startedAt`, and each Company's outcome status. `204` when no run is active. |
 | `POST /api/runs/current/cancel` | Ask the active run to stop. `202` with the run, or `204` when no run is active. |
 | `GET /api/runs/{id}` | The run, with its start and end time, status (`RUNNING`, `SUCCEEDED`, `PARTIALLY_FAILED`, `CANCELLED`), progress, and each Company's outcome (status, postings seen, truncated, error message). |
-| `GET /api/companies/{id}` | A Company's header plus its Open postings. |
+| `GET /api/companies/{id}` | A Company's header plus its Open postings; `?includeClosed=true` adds its Closed ones. Each posting carries its `state`, `OPEN` or `CLOSED`. |
 | `POST /api/companies/{id}/retry` | Retry: start a run over just that Company. `202` with the run, `409` with a `reason` when a run is active, or `404` when no Company has that id. |
 
 `POST /api/roster` also answers `409` with a `reason` while a run is active. Finished runs are
-stored but not displayed: there is no run history screen. Closed postings and Today's Postings are
-tracked as separate issues.
+stored but not displayed: there is no run history screen. Today's Postings is tracked as a
+separate issue.
 
 ## Layout
 

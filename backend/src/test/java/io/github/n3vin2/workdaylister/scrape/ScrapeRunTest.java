@@ -15,7 +15,6 @@ import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import io.github.n3vin2.workdaylister.IntegrationHarness;
 import io.github.n3vin2.workdaylister.PinnedClockConfig;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -174,6 +173,7 @@ class ScrapeRunTest extends IntegrationHarness {
         assertThat(texts(postings, "locationText")).containsExactly("Saskatoon, SK", "Regina, SK");
         assertThat(texts(postings, "postedOnLabel"))
                 .containsExactly("Posted 30+ Days Ago", "Posted Today");
+        assertThat(texts(postings, "state")).containsOnly("OPEN");
         assertThat(texts(postings, "publicUrl"))
                 .containsExactly(
                         "https://acme.wd1.myworkdayjobs.com/Careers/job/Saskatoon-SK/Accountant_R1",
@@ -207,8 +207,11 @@ class ScrapeRunTest extends IntegrationHarness {
         assertThat(started.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         long secondRun = started.getBody().path("id").asLong();
         awaitRunFinished(secondRun);
+        // The Accountant is Closed after the second run; it is asked for so its Last Seen shows.
         JsonNode postings =
-                api.getForObject("/api/companies/" + acmeId, JsonNode.class).path("postings");
+                api.getForObject(
+                                "/api/companies/" + acmeId + "?includeClosed=true", JsonNode.class)
+                        .path("postings");
         assertThat(texts(postings, "title"))
                 .containsExactly("Accountant", "Clerk", "Senior Zebra Keeper");
         assertThat(texts(postings, "requisitionId")).containsExactly("R1", "R3", "R2");
@@ -220,8 +223,6 @@ class ScrapeRunTest extends IntegrationHarness {
                 .containsExactly(firstRun, secondRun, secondRun);
         assertThat(run(secondRun).path("outcomes").get(0).path("postingsSeen").asInt())
                 .isEqualTo(2);
-        // Until Closed handling arrives (#7), a posting the latest run did not list stays Open.
-        assertThat(ints(companies(), "openCount")).containsExactly(3);
     }
 
     @Test
@@ -312,23 +313,6 @@ class ScrapeRunTest extends IntegrationHarness {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
-    /** Uploads the Roster, which starts a run, waits for that run to finish, and returns its id. */
-    private long uploadAndAwaitRun(String csv) {
-        ResponseEntity<JsonNode> upload = uploadRoster(csv);
-        assertThat(upload.getStatusCode()).isEqualTo(HttpStatus.OK);
-        long runId = upload.getBody().path("run").path("id").asLong();
-        awaitRunFinished(runId);
-        return runId;
-    }
-
-    /** Stubs one page of a Career Site's jobs endpoint, matched on the requested offset. */
-    private static void stubJobs(String jobsPath, int offset, String body) {
-        workday.stubFor(
-                post(urlEqualTo(jobsPath))
-                        .withRequestBody(matchingJsonPath("$[?(@.offset == " + offset + ")]"))
-                        .willReturn(okJson(body)));
-    }
-
     /**
      * Stubs one page with a response recorded from a real Career Site; the fixtures' README says
      * when and how it was captured.
@@ -343,43 +327,6 @@ class ScrapeRunTest extends IntegrationHarness {
                                         .withBodyFile(bodyFile)));
     }
 
-    /** A single page listing exactly the given postings. */
-    private static String postings(String... listings) {
-        return page(listings.length, List.of(listings));
-    }
-
-    /** One listing in the recorded shape, labelled {@code Posted Today}. */
-    private static String listing(String title, String externalPath, String location) {
-        String requisitionId = externalPath.substring(externalPath.lastIndexOf('_') + 1);
-        return """
-                {"title":"%s","externalPath":"%s","locationsText":"%s","postedOn":"Posted Today",\
-                "bulletFields":["%s"]}"""
-                .formatted(title, externalPath, location, requisitionId);
-    }
-
-    /** A page in the shape of the recorded fixtures: the given total and listings. */
-    private static String page(int total, List<String> listings) {
-        return "{\"total\":%d,\"jobPostings\":[%s],\"userAuthenticated\":false}"
-                .formatted(total, String.join(",", listings));
-    }
-
-    /**
-     * A page in the shape of the recorded fixtures: {@code count} postings numbered from
-     * {@code offset}, with requisition IDs {@code R<n>}, and the given {@code total}.
-     */
-    private static String jobsPage(int total, int offset, int count) {
-        List<String> postings = new ArrayList<>();
-        for (int n = offset; n < offset + count; n++) {
-            postings.add(
-                    """
-                    {"title":"Engineer %d","externalPath":"/job/Regina-SK/Engineer-%d_R%d",\
-                    "locationsText":"Regina, SK","postedOn":"Posted 30+ Days Ago",\
-                    "bulletFields":["R%d"]}"""
-                            .formatted(n, n, n, n));
-        }
-        return page(total, postings);
-    }
-
     private static JsonNode body(LoggedRequest request) {
         try {
             return json.readTree(request.getBodyAsString());
@@ -391,29 +338,5 @@ class ScrapeRunTest extends IntegrationHarness {
     /** The offsets the stub was asked for, in the order it was asked. */
     private static List<Integer> offsets(List<LoggedRequest> requests) {
         return requests.stream().map(request -> body(request).path("offset").asInt()).toList();
-    }
-
-    private static List<String> texts(JsonNode array, String field) {
-        List<String> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asText()));
-        return values;
-    }
-
-    private static List<Long> longs(JsonNode array, String field) {
-        List<Long> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asLong()));
-        return values;
-    }
-
-    private static List<Integer> ints(JsonNode array, String field) {
-        List<Integer> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asInt()));
-        return values;
-    }
-
-    private static List<Boolean> booleans(JsonNode array, String field) {
-        List<Boolean> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asBoolean()));
-        return values;
     }
 }

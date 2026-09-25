@@ -11,8 +11,6 @@ import static org.awaitility.Awaitility.await;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.n3vin2.workdaylister.IntegrationHarness;
 import io.github.n3vin2.workdaylister.PinnedClockConfig;
-import java.util.ArrayList;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -208,52 +206,8 @@ class ActiveRunTest extends IntegrationHarness {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
     }
 
-    /** Stubs one page of a Career Site's jobs endpoint, matched on the requested offset. */
-    private static void stubJobs(String jobsPath, int offset, String body) {
-        workday.stubFor(
-                post(urlEqualTo(jobsPath))
-                        .withRequestBody(matchingJsonPath("$[?(@.offset == " + offset + ")]"))
-                        .willReturn(okJson(body)));
-    }
-
     /** Stubs a Career Site's jobs endpoint to answer only once held responses are released. */
     private static void holdJobs(String jobsPath, String body) {
         workday.stubFor(post(urlEqualTo(jobsPath)).willReturn(okJson(body).withTransformers(HOLD)));
-    }
-
-    /**
-     * A page in the shape of the recorded fixtures: {@code count} postings numbered from
-     * {@code offset}, with requisition IDs {@code R<n>}, and the given {@code total}.
-     */
-    private static String jobsPage(int total, int offset, int count) {
-        List<String> postings = new ArrayList<>();
-        for (int n = offset; n < offset + count; n++) {
-            postings.add(
-                    """
-                    {"title":"Engineer %d","externalPath":"/job/Regina-SK/Engineer-%d_R%d",\
-                    "locationsText":"Regina, SK","postedOn":"Posted 30+ Days Ago",\
-                    "bulletFields":["R%d"]}"""
-                            .formatted(n, n, n, n));
-        }
-        return "{\"total\":%d,\"jobPostings\":[%s],\"userAuthenticated\":false}"
-                .formatted(total, String.join(",", postings));
-    }
-
-    private static List<String> texts(JsonNode array, String field) {
-        List<String> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asText()));
-        return values;
-    }
-
-    private static List<Long> longs(JsonNode array, String field) {
-        List<Long> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asLong()));
-        return values;
-    }
-
-    private static List<Integer> ints(JsonNode array, String field) {
-        List<Integer> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.path(field).asInt()));
-        return values;
     }
 }

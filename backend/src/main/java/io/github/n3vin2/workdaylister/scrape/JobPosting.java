@@ -4,6 +4,8 @@ import io.github.n3vin2.workdaylister.roster.Company;
 import io.github.n3vin2.workdaylister.workday.WorkdayPosting;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -13,10 +15,14 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 /**
- * One open position listed on a Career Site, identified within its Company by the requisition ID
- * (see {@code V3__scrape_run_and_job_posting.sql}). A Scrape Run inserts a posting the first time
- * it lists it and refreshes it on every later sighting, so the same posting is recognised across
- * runs even if its title changes. First Seen and Last Seen are the runs that did so.
+ * One position listed on a Career Site, identified within its Company by the requisition ID (see
+ * {@code V3__scrape_run_and_job_posting.sql}). A Scrape Run inserts a posting the first time it
+ * lists it and refreshes it on every later sighting, so the same posting is recognised across runs
+ * even if its title changes. First Seen and Last Seen are the runs that did so.
+ *
+ * <p>A posting is Open while its Career Site lists it and Closed once a run that read the whole
+ * Career Site found it gone ({@code V7__job_posting_state.sql}). Closed postings keep everything
+ * they had when last seen, and a later sighting reopens them without touching First Seen.
  */
 @Entity
 @Table(name = "job_posting")
@@ -49,6 +55,10 @@ public class JobPosting {
     @Column(name = "public_url", nullable = false, length = 2048)
     private String publicUrl;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private PostingState state;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "first_seen_run_id", nullable = false)
     private ScrapeRun firstSeenRun;
@@ -59,7 +69,7 @@ public class JobPosting {
 
     protected JobPosting() {}
 
-    /** A posting listed for the first time, by the given run. */
+    /** A posting listed for the first time, by the given run; Open, like anything just listed. */
     JobPosting(Company company, WorkdayPosting listing, ScrapeRun run) {
         this.company = company;
         this.requisitionId = listing.requisitionId();
@@ -67,14 +77,23 @@ public class JobPosting {
         seen(listing, run);
     }
 
-    /** The given run has listed this posting (again): refresh what Workday shows and Last Seen. */
+    /**
+     * The given run has listed this posting (again): refresh what Workday shows and Last Seen, and
+     * reopen it if it was Closed.
+     */
     void seen(WorkdayPosting listing, ScrapeRun run) {
         this.title = listing.title();
         this.externalPath = listing.externalPath();
         this.locationText = listing.locationsText();
         this.postedOnLabel = listing.postedOn();
         this.publicUrl = company.getCareerSite().postingUrl(listing.externalPath());
+        this.state = PostingState.OPEN;
         this.lastSeenRun = run;
+    }
+
+    /** A run read the whole Career Site and this posting was not on it. */
+    void close() {
+        this.state = PostingState.CLOSED;
     }
 
     public Long getId() {
@@ -107,6 +126,10 @@ public class JobPosting {
 
     public String getPublicUrl() {
         return publicUrl;
+    }
+
+    public PostingState getState() {
+        return state;
     }
 
     public ScrapeRun getFirstSeenRun() {

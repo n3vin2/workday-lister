@@ -15,9 +15,13 @@ public class JobPostingService {
         this.postings = postings;
     }
 
-    /** Every Open posting of a Company, by title. */
+    /** A Company's Open postings by title, with its Closed ones among them when asked. */
     @Transactional(readOnly = true)
-    public List<JobPosting> openPostingsOf(Company company) {
-        return postings.findAllByCompanyOrderByTitleAscRequisitionIdAsc(company);
+    public List<JobPosting> postingsOf(Company company, boolean includeClosed) {
+        if (includeClosed) {
+            return postings.findAllByCompanyOrderByTitleAscRequisitionIdAsc(company);
+        }
+        return postings.findAllByCompanyAndStateOrderByTitleAscRequisitionIdAsc(
+                company, PostingState.OPEN);
     }
 }

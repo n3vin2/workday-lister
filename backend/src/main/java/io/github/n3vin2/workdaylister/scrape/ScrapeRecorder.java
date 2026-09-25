@@ -90,11 +90,14 @@ class ScrapeRecorder {
     }
 
     /**
-     * Stores what a Career Site listed: unseen postings are inserted with First Seen set to this
-     * run, and every listed posting has Last Seen set to it. A posting Workday lists twice across
-     * pages (its paging shifts as postings appear) counts once. Then the Company and its outcome
-     * are marked succeeded: the outcome with the postings this run saw, the Company with its Open
-     * count, which is every posting stored for it until Closed handling arrives with a later ticket.
+     * Stores what a Career Site listed, once the whole of it has been read: unseen postings are
+     * inserted with First Seen set to this run, every listed posting has Last Seen set to it and is
+     * Open (again, if it had been Closed), and every stored posting the Career Site no longer lists
+     * is Closed, keeping its data. A posting Workday lists twice across pages (its paging shifts as
+     * postings appear) counts once. Then the Company and its outcome are marked succeeded: the
+     * outcome with the postings this run saw, the Company with how many of its postings are Open.
+     *
+     * <p>A pass that fails partway never reaches this step, so it closes nothing.
      */
     @Transactional
     public void record(long outcomeId, CareerSitePostings listed) {
@@ -118,8 +121,13 @@ class ScrapeRecorder {
                 posting.seen(listing, run);
             }
         }
+        for (JobPosting posting : known.values()) {
+            if (!seen.contains(posting.getRequisitionId())) {
+                posting.close();
+            }
+        }
         Instant now = Instant.now(clock);
-        int openCount = (int) postings.countByCompany(company);
+        int openCount = (int) postings.countByCompanyAndState(company, PostingState.OPEN);
         company.finishScrape(now, openCount, listed.truncated());
         outcome.succeed(now, seen.size(), listed.truncated());
     }

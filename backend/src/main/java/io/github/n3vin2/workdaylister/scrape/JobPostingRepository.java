@@ -6,7 +6,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
 
+    /** Every posting of a Company, Open and Closed, by title. */
     List<JobPosting> findAllByCompanyOrderByTitleAscRequisitionIdAsc(Company company);
 
-    long countByCompany(Company company);
+    List<JobPosting> findAllByCompanyAndStateOrderByTitleAscRequisitionIdAsc(
+            Company company, PostingState state);
+
+    long countByCompanyAndState(Company company, PostingState state);
 }

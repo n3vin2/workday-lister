@@ -4,13 +4,15 @@ import java.util.List;
 
 /**
  * One Job Posting as the Company screen shows it on a card: what to read, where it is, how Workday
- * labelled its age, where to apply, and which Scrape Runs first and most recently listed it.
+ * labelled its age, whether it is Open or Closed, where to apply, and which Scrape Runs first and
+ * most recently listed it.
  */
 public record PostingSummary(
         String requisitionId,
         String title,
         String locationText,
         String postedOnLabel,
+        PostingState state,
         String publicUrl,
         long firstSeenRunId,
         long lastSeenRunId) {
@@ -21,6 +23,7 @@ public record PostingSummary(
                 posting.getTitle(),
                 posting.getLocationText(),
                 posting.getPostedOnLabel(),
+                posting.getState(),
                 posting.getPublicUrl(),
                 posting.getFirstSeenRun().getId(),
                 posting.getLastSeenRun().getId());

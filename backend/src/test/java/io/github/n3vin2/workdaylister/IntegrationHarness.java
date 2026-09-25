@@ -1,7 +1,9 @@
 package io.github.n3vin2.workdaylister;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlMatching;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -58,6 +60,11 @@ import org.testcontainers.containers.MySQLContainer;
  * <p>To observe a run in the middle of a Company, a test gives that Company's stub the
  * {@link #HOLD} transformer and calls {@link #holdResponses()}: the stub then answers only once
  * the test calls {@link #releaseHeldResponses()}. No test depends on a delay racing a deadline.
+ *
+ * <p>Helpers build pages in the shape of the recorded fixtures ({@link #jobsPage},
+ * {@link #postings}, {@link #listing}), stub them by offset ({@link #stubJobs}), and read one field
+ * out of every element of a JSON array ({@link #texts}, {@link #longs}, {@link #ints},
+ * {@link #booleans}).
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -191,6 +198,24 @@ public abstract class IntegrationHarness {
         return api.postForEntity("/api/companies/" + companyId + "/retry", null, JsonNode.class);
     }
 
+    /** Uploads the Roster, which starts a run, waits for that run to finish, and returns its id. */
+    protected long uploadAndAwaitRun(String csv) {
+        ResponseEntity<JsonNode> upload = uploadRoster(csv);
+        assertThat(upload.getStatusCode()).isEqualTo(HttpStatus.OK);
+        long runId = upload.getBody().path("run").path("id").asLong();
+        awaitRunFinished(runId);
+        return runId;
+    }
+
+    /** "Scrape now" over the current Roster; waits for the run to finish and returns its id. */
+    protected long startRunAndAwait() {
+        ResponseEntity<JsonNode> started = startRun();
+        assertThat(started.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        long runId = started.getBody().path("id").asLong();
+        awaitRunFinished(runId);
+        return runId;
+    }
+
     /**
      * From now on, a stub using {@link #HOLD} answers only once {@link #releaseHeldResponses()} is
      * called.
@@ -230,6 +255,80 @@ public abstract class IntegrationHarness {
     /** {@code GET /api/companies}: the Roster as the Roster screen lists it. */
     protected JsonNode companies() {
         return api.getForObject("/api/companies", JsonNode.class);
+    }
+
+    /** {@code GET /api/companies/{id}}: a Company as the Company screen shows it by default. */
+    protected JsonNode company(long companyId) {
+        return api.getForObject("/api/companies/" + companyId, JsonNode.class);
+    }
+
+    /** Stubs one page of a Career Site's jobs endpoint, matched on the requested offset. */
+    protected static void stubJobs(String jobsPath, int offset, String body) {
+        workday.stubFor(
+                post(urlEqualTo(jobsPath))
+                        .withRequestBody(matchingJsonPath("$[?(@.offset == " + offset + ")]"))
+                        .willReturn(okJson(body)));
+    }
+
+    /** A single page listing exactly the given postings. */
+    protected static String postings(String... listings) {
+        return page(listings.length, List.of(listings));
+    }
+
+    /** One listing in the recorded shape, labelled {@code Posted Today}. */
+    protected static String listing(String title, String externalPath, String location) {
+        String requisitionId = externalPath.substring(externalPath.lastIndexOf('_') + 1);
+        return """
+                {"title":"%s","externalPath":"%s","locationsText":"%s","postedOn":"Posted Today",\
+                "bulletFields":["%s"]}"""
+                .formatted(title, externalPath, location, requisitionId);
+    }
+
+    /** A page in the shape of the recorded fixtures: the given total and listings. */
+    protected static String page(int total, List<String> listings) {
+        return "{\"total\":%d,\"jobPostings\":[%s],\"userAuthenticated\":false}"
+                .formatted(total, String.join(",", listings));
+    }
+
+    /**
+     * A page in the shape of the recorded fixtures: {@code count} postings numbered from
+     * {@code offset}, with requisition IDs {@code R<n>}, and the given {@code total}.
+     */
+    protected static String jobsPage(int total, int offset, int count) {
+        List<String> postings = new ArrayList<>();
+        for (int n = offset; n < offset + count; n++) {
+            postings.add(
+                    """
+                    {"title":"Engineer %d","externalPath":"/job/Regina-SK/Engineer-%d_R%d",\
+                    "locationsText":"Regina, SK","postedOn":"Posted 30+ Days Ago",\
+                    "bulletFields":["R%d"]}"""
+                            .formatted(n, n, n, n));
+        }
+        return page(total, postings);
+    }
+
+    protected static List<String> texts(JsonNode array, String field) {
+        List<String> values = new ArrayList<>();
+        array.forEach(node -> values.add(node.path(field).asText()));
+        return values;
+    }
+
+    protected static List<Long> longs(JsonNode array, String field) {
+        List<Long> values = new ArrayList<>();
+        array.forEach(node -> values.add(node.path(field).asLong()));
+        return values;
+    }
+
+    protected static List<Integer> ints(JsonNode array, String field) {
+        List<Integer> values = new ArrayList<>();
+        array.forEach(node -> values.add(node.path(field).asInt()));
+        return values;
+    }
+
+    protected static List<Boolean> booleans(JsonNode array, String field) {
+        List<Boolean> values = new ArrayList<>();
+        array.forEach(node -> values.add(node.path(field).asBoolean()));
+        return values;
     }
 
     /**
